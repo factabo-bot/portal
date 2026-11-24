@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 15;
+var VERSION = 16;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';
@@ -57,7 +57,6 @@ function doPost(e) {
 
   if (String(body.type || '').indexOf('keihi') === 0) return json_(keihiHandle_(body));
   if (String(body.type || '').indexOf('holdings') === 0) return json_(holdingsHandle_(body, props));
-  if (String(body.type || '').indexOf('budget') === 0) return json_(budgetHandle_(body));
 
   if (!same_(body.key, WEBAPP_TOKEN)) return json_({ ok: false, error: 'key' });
 
@@ -72,13 +71,6 @@ function doPost(e) {
     var ses = props.getProperty(SESSIONS_KEY);
     out.sessions = ses ? JSON.parse(ses) : null;
     out.wishes = wishes_(props);
-    var cache = CacheService.getScriptCache();
-    try {
-      var mf = cache.get('mf_month');
-      out.mf = mf ? JSON.parse(mf) : mfMonth_();
-      if (!mf) cache.put('mf_month', JSON.stringify(out.mf), 1800);
-      out.mf.budget = Number(props.getProperty(MF_BUDGET_KEY) || 0);
-    } catch (err) { out.mfError = String(err).slice(0, 120); }
     try { out.stocks = stocks_(); } catch (err) { out.stocksError = String(err).slice(0, 120); }
     return json_(out);
   }

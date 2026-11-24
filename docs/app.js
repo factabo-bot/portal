@@ -22,6 +22,7 @@ const DEFAULT_LINKS = {
       { name: 'カレンダー', url: 'https://calendar.google.com/' },
       { name: 'ドライブ', url: 'https://drive.google.com/' },
       { name: 'Claude', url: 'https://claude.ai/' },
+      { name: 'マネーフォワード 予算', url: 'https://moneyforward.com/spending_summaries' },
       { name: '農薬登録情報', url: 'https://pesticide.maff.go.jp/' },
     ]},
   ],
@@ -149,7 +150,6 @@ function renderRemote(j) {
   // やりたいこと
   if (Array.isArray(j.wishes)) { wishes = j.wishes; renderWishes(); }
   // 家計・株価
-  if (j.mf || j.mfError) renderMf(j.mf, j.mfError);
   if (j.stocks || j.stocksError) { stockList = (j.stocks && j.stocks.list) || stockList; renderStocks(j.stocks, j.stocksError); }
   // 予察
   if (j.pestError) $('#pest').innerHTML = `<div class="muted">予察ログを読めませんでした：${esc(j.pestError)}</div>`;
@@ -368,8 +368,9 @@ $('#wishes').addEventListener('click', async (e) => {
 const yen = (n) => `${Math.round(n).toLocaleString('ja-JP')}円`;
 let budgetShown = false;
 function renderMf(mf, err) {
-  if (budgetShown) return;   // お金の合言葉がある端末では、CSV の分類別を出す
+  if (budgetShown) return;
   const el = $('#mf');
+  if (!el) return;   // 今月の支出の欄は 11/24 に廃止（手動のCSVは不要と本人）
   if (err) { el.innerHTML = `<div class="muted">読めませんでした（Gmailの許可が要るかもしれません）</div>`; return; }
   const now = new Date();
   const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
@@ -474,7 +475,7 @@ function renderKeihiCard() {
   const on = !!(cfg.url && cfg.keihi);
   $('#keihi-card').hidden = !on;
   $('#hold-card').hidden = !on;
-  if (on) { loadHoldings(); loadBudget(); }
+  if (on) loadHoldings();
 }
 
 // ---------- 家計の分類別（マネーフォワードの CSV。お金の合言葉がある端末だけ） ----------
