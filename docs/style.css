@@ -240,3 +240,8 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
   .hrow .hp { grid-column: 2; }
 }
 #hold-text { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font: inherit; font-size: .85rem; }
+.wtasks { margin-top: 6px; display: grid; gap: 2px; }
+.wtask { display: flex; gap: 6px; align-items: baseline; }
+.wtask .tm { width: 1.1em; flex: none; text-align: center; }
+.wtask.ts-done { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
+.wtask.ts-doing .tm, .wtask.ts-doing { color: var(--accent); font-weight: 700; }

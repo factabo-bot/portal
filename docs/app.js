@@ -230,9 +230,14 @@ function progressHtml(p) {
   const dots = [0, 1, 2, 3].map((i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('');
   const ses = (p.sessions || []).length
     ? `<details class="wses"><summary>関係するセッション ${p.sessions.length}件</summary>${p.sessions.map((s) => `<div>${esc(s.t)} <span class="meta">${md(s.d)}</span></div>`).join('')}</details>` : '';
+  const tasks = p.tasks || [];
+  const doneN = tasks.filter((t) => t.s === '済').length;
+  const MARK = { '済': '✓', '途中': '◐', '未': '○' };
+  const tasksHtml = tasks.length ? `<div class="wtasks">${tasks.map((t) => `<div class="wtask ts-${t.s === '済' ? 'done' : t.s === '途中' ? 'doing' : 'todo'}"><span class="tm">${MARK[t.s] || '○'}</span>${esc(t.t)}</div>`).join('')}</div>` : '';
   return `<div class="wprog${n === 4 ? ' maybe' : ''}">
-      <span class="wstage"><span class="wdots">${dots}</span>${esc(p.stage)}</span>
+      <span class="wstage"><span class="wdots">${dots}</span>${esc(p.stage)}${tasks.length ? `<span class="meta">　${doneN}/${tasks.length}済み</span>` : ''}</span>
       ${p.line ? `<span class="wline">${esc(p.line)}</span>` : ''}
+      ${tasksHtml}
       ${n === 4 ? '<span class="wask">かなっていたら「やった」を押してください</span>' : ''}
       ${ses}<div class="meta">Claudeの見立て・${md(p.at)}</div></div>`;
 }
