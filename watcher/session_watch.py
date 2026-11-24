@@ -249,7 +249,8 @@ def collect():
             "state": st,
             "at": int(f["at"]),
             "q": f["q"] if st == "ask" else "",
-            "acct": account_label(f["owner"] or (dinfo[2] if dinfo else ""), accounts),
+            # デスクトップの会話は、アプリの管理フォルダのアカウントが正（11/24 実測。記録の中の持ち主は CLI のログインが写ることがある）
+            "acct": account_label((dinfo[2] if dinfo else "") if f["entry"] == "claude-desktop" else f["owner"], accounts),
             # 飛び先：VS Code は記録のID、デスクトップはアプリ内のID、ブラウザはリモート接続のID
             "open": (dinfo[0] if dinfo else "") if f["entry"] == "claude-desktop" else p.stem,
             "rc": f["bridge"].split("_", 1)[1] if "_" in f["bridge"] else "",
