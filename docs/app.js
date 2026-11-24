@@ -224,7 +224,29 @@ function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.g
 
 // Claude による見立て（1日1回PCが更新）。段階は5つ
 const STAGE_N = { '未着手': 0, '考え中': 1, '進んでいる': 2, 'ほぼできた': 3, 'かなったかも': 4 };
-function progressHtml(p) {
+// 続きを開くリンク。VS Code は会話を開いて入力欄に一言入れる、デスクトップはその会話を開く
+function continueUrl(x, prompt) {
+  if (!x) return '';
+  if (x.app === 'VS Code' && RE_UUID.test(x.open || '')) return `vscode://anthropic.claude-code/open?session=${x.open}&prompt=${encodeURIComponent(prompt)}`;
+  if (x.app === 'デスクトップ' && RE_LOCAL.test(x.open || '')) return `claude://code/continue?session=${x.open}`;
+  return '';
+}
+function companionUrl(w, task) {
+  const prompt = `【やりたいこと伴走】「${w.text}」（やりたいことID ${w.id}・${md(w.at)}に思った）
+`
+    + (task ? `作業「${task}」を進めたい。関係する記憶と記録を確かめて、この作業の次の一歩を短く示してください。`
+      : 'これをかなえるまで伴走してください。関係する記憶と記録を確かめて、今どこまで来ているか・かなえるまでの作業の分け方・次の一歩を短く示してください。');
+  return `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(prompt)}`;
+}
+function wishLink(w) {   // やりたいこと全体：いちばん最近の関係セッションの続き、無ければ新しい伴走
+  const ses = ((w.progress && w.progress.sessions) || []).filter((x) => continueUrl(x, '')).sort((a, b) => (a.d < b.d ? 1 : -1));
+  return continueUrl(ses[0], `続き：やりたいこと「${w.text}」を進めよう`) || companionUrl(w);
+}
+function taskLink(w, t) {
+  return continueUrl(t, `続き：やりたいこと「${w.text}」の作業「${t.t}」を進めよう`) || companionUrl(w, t.t);
+}
+
+function progressHtml(p, w) {
   if (!p || !(p.stage in STAGE_N)) return '';
   const n = STAGE_N[p.stage];
   const dots = [0, 1, 2, 3].map((i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('');
@@ -233,7 +255,11 @@ function progressHtml(p) {
   const tasks = p.tasks || [];
   const doneN = tasks.filter((t) => t.s === '済').length;
   const MARK = { '済': '✓', '途中': '◐', '未': '○' };
-  const trow = (t) => `<div class="wtask ts-${t.s === '済' ? 'done' : t.s === '途中' ? 'doing' : 'todo'}"><span class="tm">${MARK[t.s] || '○'}</span>${esc(t.t)}</div>`;
+  const trow = (t) => {
+    const inner = `<span class="tm">${MARK[t.s] || '○'}</span>${esc(t.t)}${!PHONE && t.s !== '済' ? `<span class="tgo">${continueUrl(t, '') ? '続き' : '始める'}</span>` : ''}`;
+    const cls = `wtask ts-${t.s === '済' ? 'done' : t.s === '途中' ? 'doing' : 'todo'}`;
+    return !PHONE && w ? `<a class="${cls}" href="${esc(taskLink(w, t))}">${inner}</a>` : `<div class="${cls}">${inner}</div>`;
+  };
   // 作業の数に上限はない。多いとき（10個超）は済んだ分だけ折りたたむ
   const fold = tasks.length > 10 && doneN > 0;
   const tasksHtml = !tasks.length ? '' : fold
@@ -251,10 +277,7 @@ function progressHtml(p) {
 // VS Code の Claude を、このやりたいことの伴走として開く（頼みごとは入力欄に入った状態。送るのは本人）
 function openCompanion(w) {
   if (!w || !/^[0-9a-f]{8}$/.test(w.id)) return;
-  const prompt = `【やりたいこと伴走】「${w.text}」（やりたいことID ${w.id}・${md(w.at)}に思った）
-`
-    + 'これをかなえるまで伴走してください。関係する記憶と記録を確かめて、今どこまで来ているか・かなえるまでの作業の分け方・次の一歩を短く示してください。';
-  location.href = `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(prompt)}`;
+  location.href = companionUrl(w);
 }
 
 function renderWishes() {
@@ -273,10 +296,11 @@ function renderWishes() {
           <input data-note="${id}" maxlength="300" placeholder="やめた理由（なくてもよい）">
           <button class="btn small" data-wa="drop-ok" data-id="${id}">やめた</button>
           <button class="btn small ghost" data-wa="drop-cancel">戻る</button></div>` : '';
-      return `<div class="wrow"><div class="wmain"><span class="wtext">${esc(w.text)}</span>
+      const title = PHONE ? `<span class="wtext">${esc(w.text)}</span>` : `<a class="wtext wlink" href="${esc(wishLink(w))}" title="続きを開く">${esc(w.text)}</a>`;
+      return `<div class="wrow"><div class="wmain">${title}
           <span class="wops">${PHONE ? '' : `<button class="btn small ghost" data-wa="buddy" data-id="${id}" title="VS CodeでClaudeと進める">伴走</button>`}<button class="btn small ghost" data-wa="done" data-id="${id}">やった</button>
           <button class="btn small ghost" data-wa="drop" data-id="${id}">やめた</button></span></div>
-          <div class="meta">${md(w.at)}に思った</div>${progressHtml(w.progress)}${drop}</div>`;
+          <div class="meta">${md(w.at)}に思った</div>${progressHtml(w.progress, w)}${drop}</div>`;
     }
     return `<div class="wrow"><div class="wmain"><span class="wtext">${esc(w.text)}</span>
         <span class="wops"><button class="btn small ghost" data-wa="open" data-id="${id}">やりたいに戻す</button></span></div>

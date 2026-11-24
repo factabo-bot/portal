@@ -8,6 +8,7 @@
 - claude -p は空のフォルダ（_llm）で動かす。作られる記録は sdk-cli なので、セッション欄には出ない
 """
 import json
+import os
 import pathlib
 import re
 import subprocess
@@ -88,9 +89,46 @@ def digest(path):
                     last = clean(tx, 160)
     if entry not in APPS:
         return None
-    return {"title": title or "（名前なし）", "app": APPS[entry], "start": (t0 or "")[:10],
+    return {"ref": path.stem[:8], "title": title or "（名前なし）", "app": APPS[entry], "start": (t0 or "")[:10],
             "end": time.strftime("%Y-%m-%d", time.localtime(path.stat().st_mtime)),
             "first": first, "last": last}
+
+
+DESKTOP_SESSIONS = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Claude-Data" / "claude_pzs8sxrjxfjjc" / "claude-code-sessions"
+
+
+def ref_map():
+    """セッションの短い印（記録のIDの頭8文字）→ 開くための情報。古いセッションも含めて全部"""
+    desk = {}
+    for p in DESKTOP_SESSIONS.glob("*/*/local_*.json"):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if d.get("cliSessionId") and not d.get("isArchived"):
+            desk[d["cliSessionId"]] = d.get("sessionId", "")
+    m = {}
+    for p in PROJECTS.glob("*/*.jsonl"):
+        if p.stem in desk:
+            m[p.stem[:8]] = {"app": "デスクトップ", "open": desk[p.stem]}
+        else:
+            m[p.stem[:8]] = {"app": "VS Code", "open": p.stem}
+    return m
+
+
+def attach(items, refs):
+    """見立ての ref を、開くための app・open に置き換える（知らない ref は捨てる）"""
+    for it in items:
+        for k in ("tasks", "sessions"):
+            for x in it.get(k) or []:
+                ref0 = str(x.pop("ref", "") or "")[:8]
+                for k2 in ("app", "open"):
+                    x.pop(k2, None)
+                r = refs.get(ref0)
+                if r:
+                    x.update(r)
+                    x["ref"] = ref0   # 次回の見立てに引き継ぐための印
+    return items
 
 
 def main():
@@ -123,7 +161,7 @@ def main():
 # やりたいこと（前回の見立てがあれば、それを今回の材料で更新する）
 {json.dumps(wl, ensure_ascii=False, indent=1)}
 
-# 前回以降に動いた Claude とのセッション（名前・期間・最初の頼みごとの頭・最後の返事の頭）
+# 前回以降に動いた Claude とのセッション（ref＝印・名前・期間・最初の頼みごとの頭・最後の返事の頭）
 {json.dumps(sessions, ensure_ascii=False)}
 
 # 本人の記憶の索引（決まったこと・進行中のことの一覧。日付つき）
@@ -131,7 +169,7 @@ def main():
 
 # 答え方
 やりたいことごとに、次の形の JSON 配列だけを出力する（前置き・説明・コードブロック記号は不要）。
-[{{"id": "…", "stage": "未着手|考え中|進んでいる|ほぼできた|かなったかも", "line": "今どこまで来ているかを40字以内の日本語で", "tasks": [{{"t": "作業（20字以内）", "s": "済|途中|未"}}], "sessions": [{{"t": "関係するセッション名", "d": "最後の日付 YYYY-MM-DD"}}]}}]
+[{{"id": "…", "stage": "未着手|考え中|進んでいる|ほぼできた|かなったかも", "line": "今どこまで来ているかを40字以内の日本語で", "tasks": [{{"t": "作業（20字以内）", "s": "済|途中|未", "ref": "その作業をやっていたセッションの ref（無ければ空）"}}], "sessions": [{{"ref": "セッションの ref", "t": "関係するセッション名", "d": "最後の日付 YYYY-MM-DD"}}]}}]
 - stage は5つのどれか。材料に何も無ければ「未着手」。前回の見立てより後退させるのは、材料に根拠があるときだけ
 - 「かなったかも」は、買った・完成した・決めて終えた等が材料にはっきりあるときだけ
 - line は事実だけ。金額・人名・住所などの細かい個人情報は書かない
@@ -139,6 +177,7 @@ def main():
   前回の見立てに tasks があれば、言い回しと並びをそのまま引き継ぎ、状態（済・途中・未）だけを材料に合わせて更新する。
   作業を足す・分け直すのは、材料から新しく必要な作業がはっきりしたときだけ。済にするのは材料に終えた根拠があるときだけ
 - stage は tasks の進み具合と合うようにする
+- tasks の ref は、その作業をいちばん最近進めていたセッション。前回の見立ての ref は、新しいセッションで進んでいなければ引き継ぐ
 - sessions は関係が明らかなものだけ、最大5件。無ければ空配列（前回の見立ての sessions は引き継いでよい）
 """
     WORKDIR.mkdir(exist_ok=True)
@@ -152,6 +191,7 @@ def main():
     items = json.loads(m.group(0))
     ids = {w["id"] for w in wishes}
     items = [it for it in items if it.get("id") in ids and it.get("stage") in STAGES]
+    items = attach(items, ref_map())
     res = post({"type": "wishProgress", "items": items}, CFG["pushToken"])
     state["last_run"] = time.time()
     STATE.write_text(json.dumps(state), encoding="utf-8")

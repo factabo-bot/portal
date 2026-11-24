@@ -245,3 +245,11 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .wtask .tm { width: 1.1em; flex: none; text-align: center; }
 .wtask.ts-done { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line); }
 .wtask.ts-doing .tm, .wtask.ts-doing { color: var(--accent); font-weight: 700; }
+
+a.wtask { text-decoration: none; color: inherit; border-radius: 4px; padding: 1px 2px; }
+a.wtask:hover { background: var(--card); }
+a.wtask.ts-done { text-decoration: line-through; text-decoration-color: var(--line); }
+.tgo { margin-left: auto; font-size: .75rem; color: var(--muted); font-weight: 400; opacity: 0; }
+a.wtask:hover .tgo { opacity: 1; }
+a.wlink { color: inherit; text-decoration: none; font-weight: 700; }
+a.wlink:hover { text-decoration: underline; }

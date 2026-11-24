@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 13;
+var VERSION = 14;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';
@@ -42,10 +42,10 @@ function doPost(e) {
         stage: STAGES.indexOf(it.stage) >= 0 ? it.stage : '未着手',
         line: String(it.line || '').slice(0, 80),
         sessions: (it.sessions || []).slice(0, 5).map(function (s) {
-          return { t: String(s.t || '').slice(0, 60), d: String(s.d || '').slice(0, 10) };
+          return link_({ t: String(s.t || '').slice(0, 60), d: String(s.d || '').slice(0, 10) }, s);
         }),
         tasks: (it.tasks || []).slice(0, 60).map(function (t) {
-          return { t: String(t.t || '').slice(0, 40), s: ['済', '途中', '未'].indexOf(t.s) >= 0 ? t.s : '未' };
+          return link_({ t: String(t.t || '').slice(0, 40), s: ['済', '途中', '未'].indexOf(t.s) >= 0 ? t.s : '未' }, t);
         }),
         at: new Date().toISOString()
       };
@@ -136,6 +136,17 @@ function wishes_(props) {
 function wishDate_(s) {
   s = String(s || '');
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : Utilities.formatDate(new Date(), 'Asia/Tokyo', 'yyyy-MM-dd');
+}
+
+// 続きを開くための情報（形を確かめたものだけ残す）
+function link_(o, src) {
+  var app = String(src.app || ''), open = String(src.open || ''), ref = String(src.ref || '');
+  var uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+  if ((app === 'VS Code' && uuid.test(open)) || (app === 'デスクトップ' && /^local_/.test(open) && uuid.test(open.slice(6)))) {
+    o.app = app; o.open = open;
+  }
+  if (/^[0-9a-f]{8}$/.test(ref)) o.ref = ref;
+  return o;
 }
 
 // 合言葉の比較（長さと全文字を必ず見る）
