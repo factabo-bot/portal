@@ -229,6 +229,7 @@ function putSessions(data) {
   const cached = load(LS.remote, null);
   if (cached) save(LS.remote, { ...cached, sessions: data });
   lastQuota = data.quota || null;
+  renderDest();
   const open = !!$('#sessions .sdone')?.open;
   renderSessions(data);
   if (open) { const d = $('#sessions .sdone'); if (d) d.open = true; }
@@ -277,29 +278,90 @@ function chooseApp() {
   if (!v && !d) return { app: 'VS Code', why: '使用量が分からないのでVS Code' };
   if (!d) return { app: 'VS Code', why: 'デスクトップの使用量が分からない' };
   if (!v) return { app: 'デスクトップ', why: 'VS Codeの使用量が分からない' };
-  const label = (q, n) => `${n} 5時間${q.fh}%・7日${q.sd}%${q.est ? `（${hm(new Date(q.at * 1000))}の記録から推定）` : ''}`;
+  const label = (q, n) => `${n} 5時間${q.fh}%・7日${q.sd}%${q.est ? '（推定）' : ''}`;
   const both = `${label(v, 'VS Code')}／${label(d, 'デスクトップ')}`;
   if (v.sd >= 95 && d.sd < 95) return { app: 'デスクトップ', why: `VS Codeの7日枠が残り少ない。${both}` };
   if (d.sd >= 95 && v.sd < 95) return { app: 'VS Code', why: `デスクトップの7日枠が残り少ない。${both}` };
   if (v.fh < 80 && d.fh < 80) return v.sd <= d.sd ? { app: 'VS Code', why: `7日枠に余裕。${both}` } : { app: 'デスクトップ', why: `7日枠に余裕。${both}` };
   return v.fh <= d.fh ? { app: 'VS Code', why: `5時間枠に余裕。${both}` } : { app: 'デスクトップ', why: `5時間枠に余裕。${both}` };
 }
-function companionUrl(w, task) {
-  const prompt = `【やりたいこと伴走】「${w.text}」（やりたいことID ${w.id}・${md(w.at)}に思った）
+function companionPrompt(w, task) {
+  return `【やりたいこと伴走】「${w.text}」（やりたいことID ${w.id}・${md(w.at)}に思った）
 `
     + (task ? `作業「${task}」を進めたい。関係する記憶と記録を確かめて、この作業の次の一歩を短く示してください。`
       : 'これをかなえるまで伴走してください。関係する記憶と記録を確かめて、今どこまで来ているか・かなえるまでの作業の分け方・次の一歩を短く示してください。');
-  return chooseApp().app === 'デスクトップ'
+}
+function newUrl(app, prompt) {
+  return app === 'デスクトップ'
     ? `claude://code/new?q=${encodeURIComponent(prompt)}`
     : `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(prompt)}`;
 }
-function wishLink(w) {   // やりたいこと全体：いちばん最近の関係セッションの続き、無ければ新しい伴走
-  const ses = ((w.progress && w.progress.sessions) || []).filter((x) => continueUrl(x, '')).sort((a, b) => (a.d < b.d ? 1 : -1));
-  return continueUrl(ses[0], `続き：やりたいこと「${w.text}」を進めよう`) || companionUrl(w);
+function companionUrl(w, task) { return newUrl(chooseApp().app, companionPrompt(w, task)); }
+
+// ---------- 続きか新規かを選ぶ欄（作業・やりたいことの名前を押すと、その下に開く）----------
+function quotaText(app) {
+  const q = lastQuota && lastQuota[app === 'デスクトップ' ? 'desktop' : 'vscode'];
+  if (!q) return '使用量は不明';
+  const reset = q.fhReset && q.fhReset * 1000 > Date.now() ? `・${hm(new Date(Math.round(q.fhReset / 60) * 60000))}に回復` : '';
+  return `5時間枠 ${q.fh}%・7日枠 ${q.sd}%${reset}${q.est ? '（推定）' : ''}`;
 }
-function taskLink(w, t) {
-  return continueUrl(t, `続き：やりたいこと「${w.text}」の作業「${t.t}」を進めよう`) || companionUrl(w, t.t);
+function quotaTight(app) {
+  const q = lastQuota && lastQuota[app === 'デスクトップ' ? 'desktop' : 'vscode'];
+  return !!q && (q.fh >= 90 || q.sd >= 95);
 }
+// 続きの候補：その作業の会話を先頭に、やりたいこと全体の関係する会話を新しい順で（3件まで）
+function continueList(w, t) {
+  const ses = [...((w.progress && w.progress.sessions) || [])].sort((a, b) => (a.d < b.d ? 1 : -1));
+  const live = ((load(LS.remote, {}).sessions || {}).sessions || []);
+  const own = t && t.open ? [{ ...t, t: (ses.find((x) => x.open === t.open) || {}).t || '', d: (ses.find((x) => x.open === t.open) || {}).d || '' }] : [];
+  const seen = new Set();
+  return [...own, ...ses].filter((x) => continueUrl(x, '') && !seen.has(x.open) && seen.add(x.open)).slice(0, 3).map((x) => {
+    const l = live.find((y) => y.open === x.open);
+    return { ...x, t: (l && l.title) || x.t || 'この作業の会話', rc: l && RE_RC.test(l.rc || '') ? l.rc : '' };
+  });
+}
+function pickHtml(w, t) {
+  const task = t ? t.t : '';
+  const cont = continueList(w, t).map((x) => {
+    const url = PHONE ? (x.rc ? `https://claude.ai/code/session_${x.rc}` : '') : continueUrl(x, `続き：やりたいこと「${w.text}」${task ? `の作業「${task}」` : ''}を進めよう`);
+    const tight = quotaTight(x.app) ? '・<span class="ptight">枠が残りわずか</span>' : '';
+    const inner = `<span class="pn">${esc(x.t)}</span><span class="meta">${esc(x.app)}${x.d ? '・' + md(x.d) : ''}${tight}${url ? '' : '・PCで開けます'}</span>`;
+    return url ? `<a class="pbtn" href="${esc(url)}"${PHONE ? ' target="_blank" rel="noopener noreferrer"' : ''}>${inner}</a>` : `<div class="pbtn off">${inner}</div>`;
+  }).join('');
+  let fresh;
+  if (PHONE) {
+    fresh = `<button type="button" class="pbtn" data-pcopy><span class="pn">文をコピーしてClaudeを開く</span><span class="meta">「obsidian」を選び、貼って送る。VS Code側：${quotaText('VS Code')}／デスクトップ側：${quotaText('デスクトップ')}</span></button>`;
+  } else {
+    const ch = chooseApp();
+    const apps = ch.app === 'VS Code' ? ['VS Code', 'デスクトップ'] : ['デスクトップ', 'VS Code'];
+    fresh = apps.map((a, i) => `<a class="pbtn${i ? '' : ' rec'}" href="${esc(newUrl(a, companionPrompt(w, task)))}"><span class="pn">${a}${i ? '' : '（余裕がある方）'}</span><span class="meta">${quotaText(a)}${quotaTight(a) ? '・<span class="ptight">枠が残りわずか</span>' : ''}</span></a>`).join('');
+  }
+  return `<div class="pick"><div class="ph">続きから</div>${cont || '<div class="meta">関係する会話はまだありません</div>'}<div class="ph">新しい会話で</div>${fresh}</div>`;
+}
+$('#wishes').addEventListener('click', (e) => {
+  const pw = e.target.closest('[data-pickw]');
+  const row = pw ? pw.closest('.wmain') : e.target.closest('[data-pick]');
+  if (row) {
+    const next = row.nextElementSibling;
+    const was = next && next.classList.contains('pick');
+    document.querySelectorAll('#wishes .pick').forEach((x) => x.remove());
+    document.querySelectorAll('#wishes [data-pick]').forEach((x) => x.setAttribute('aria-expanded', 'false'));
+    if (was) return;
+    const [id, i] = pw ? [pw.dataset.pickw, ''] : row.dataset.pick.split(':');
+    const w = wishes.find((x) => x.id === id);
+    if (!w) return;
+    const t = i === '' ? null : ((w.progress && w.progress.tasks) || [])[+i];
+    row.insertAdjacentHTML('afterend', pickHtml(w, t));
+    row.nextElementSibling._pick = { w, t };
+    if (!pw) row.setAttribute('aria-expanded', 'true');
+    return;
+  }
+  const copy = e.target.closest('[data-pcopy]');
+  if (copy) {
+    const { w, t } = copy.closest('.pick')._pick;
+    navigator.clipboard.writeText(companionPrompt(w, t ? t.t : '')).then(() => { setStatus('文をコピーしました'); location.href = 'https://claude.ai/code'; }, () => setStatus('コピーできませんでした'));
+  }
+});
 
 function progressHtml(p, w) {
   if (!p || !(p.stage in STAGE_N)) return '';
@@ -311,10 +373,11 @@ function progressHtml(p, w) {
   const doneN = tasks.filter((t) => t.s === '済').length;
   const MARK = { '済': '✓', '途中': '◐', '待ち': '⏸', '未': '○' };
   const trow = (t) => {
-    const inner = `<span class="tm">${MARK[t.s] || '○'}</span><span class="tt">${esc(t.t)}${t.by === '人' ? '<span class="tby" title="本人・伴走で決めた（見立て役は変えない）">✎</span>' : ''}${t.hint ? `<span class="thint">見立て：${esc(t.hint)}</span>` : ''}</span>${!PHONE && t.s !== '済' ? `<span class="tgo">${continueUrl(t, '') ? '続き' : '始める'}</span>` : ''}`;
+    const go = continueUrl(t, '') ? '続き・新規' : '始める';
+    const inner = `<span class="tm">${MARK[t.s] || '○'}</span><span class="tt">${esc(t.t)}${t.by === '人' ? '<span class="tby" title="本人・伴走で決めた（見立て役は変えない）">✎</span>' : ''}${t.hint ? `<span class="thint">見立て：${esc(t.hint)}</span>` : ''}</span>${t.s !== '済' ? `<span class="tgo">${go}</span>` : ''}`;
     const cls = `wtask ts-${t.s === '済' ? 'done' : t.s === '途中' ? 'doing' : t.s === '待ち' ? 'wait' : 'todo'}`;
     const tip = t.basis ? ` title="${esc((t.s === '待ち' ? '待っているもの：' : '根拠：') + t.basis)}"` : '';
-    return !PHONE && w ? `<a class="${cls}" href="${esc(taskLink(w, t))}"${tip}>${inner}</a>` : `<div class="${cls}"${tip}>${inner}</div>`;
+    return w && /^[0-9a-f]{8}$/.test(w.id) ? `<button type="button" class="${cls}" data-pick="${esc(w.id)}:${tasks.indexOf(t)}" aria-expanded="false"${tip}>${inner}</button>` : `<div class="${cls}"${tip}>${inner}</div>`;
   };
   // 作業の数に上限はない。出すのは「途中」と次の「未」1つだけ、全部は畳む（原則2）
   const doing = tasks.filter((t) => t.s === '途中');
@@ -336,12 +399,15 @@ function openCompanion(w) {
   location.href = companionUrl(w);
 }
 
-function renderWishes() {
-  const n = wishes.filter((w) => w.state === 'open').length;
-  $('#wish-count').textContent = n ? `${n}件` : '';
+function renderDest() {
   const ch = chooseApp();
   const dest = $('#wish-dest');
   if (dest) { dest.textContent = PHONE ? '' : `新しく開く先：${ch.app}`; dest.title = ch.why; }
+}
+function renderWishes() {
+  const n = wishes.filter((w) => w.state === 'open').length;
+  $('#wish-count').textContent = n ? `${n}件` : '';
+  renderDest();
   document.querySelectorAll('[data-wt]').forEach((b) => b.classList.toggle('on', b.dataset.wt === wishTab));
   const list = wishes.filter((w) => w.state === wishTab);
   if (!list.length) {
@@ -355,9 +421,9 @@ function renderWishes() {
           <input data-note="${id}" maxlength="300" placeholder="やめた理由（なくてもよい）">
           <button class="btn small" data-wa="drop-ok" data-id="${id}">やめた</button>
           <button class="btn small ghost" data-wa="drop-cancel">戻る</button></div>` : '';
-      const title = PHONE ? `<span class="wtext">${esc(w.text)}</span>` : `<a class="wtext wlink" href="${esc(wishLink(w))}" title="続きを開く">${esc(w.text)}</a>`;
-      return `<div class="wrow"><div class="wmain">${title}
-          <span class="wops">${PHONE ? '' : `<button class="btn small ghost" data-wa="buddy" data-id="${id}" title="VS CodeでClaudeと進める">伴走</button>`}<button class="btn small ghost" data-wa="done" data-id="${id}">やった</button>
+      // 名前を押すと、続きか新規かを選ぶ欄が下に開く（伴走ボタンの役目もここへ移した）
+      return `<div class="wrow"><div class="wmain"><button type="button" class="wtext wlink" data-pickw="${id}" title="続きか新規かを選ぶ">${esc(w.text)}</button>
+          <span class="wops"><button class="btn small ghost" data-pickw="${id}" title="続きか新規かを選ぶ">伴走</button><button class="btn small ghost" data-wa="done" data-id="${id}">やった</button>
           <button class="btn small ghost" data-wa="drop" data-id="${id}">やめた</button></span></div>
           <div class="meta">${md(w.at)}に思った</div>${progressHtml(w.progress, w)}${drop}</div>`;
     }
@@ -402,7 +468,6 @@ $('#wishes').addEventListener('click', async (e) => {
   const act = b.dataset.wa, id = b.dataset.id;
   if (act === 'drop') { wishDropping = id; renderWishes(); document.querySelector(`[data-note="${id}"]`)?.focus(); return; }
   if (act === 'drop-cancel') { wishDropping = null; renderWishes(); return; }
-  if (act === 'buddy') { const w0 = wishes.find((x) => x.id === id); if (w0) openCompanion(w0); return; }
   const state = act === 'drop-ok' ? 'drop' : act;
   const body = { type: 'wishUpdate', id, state };
   if (act === 'drop-ok') body.note = document.querySelector(`[data-note="${id}"]`)?.value || '';

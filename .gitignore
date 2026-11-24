@@ -11,3 +11,4 @@ gas/src/BudgetPrivate.js
 watcher/summaries/
 watcher/parse_cache.json
 gas/tools/__pycache__/
+watcher/usage_cache*.json

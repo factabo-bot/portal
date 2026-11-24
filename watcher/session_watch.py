@@ -277,15 +277,16 @@ def quotas():
                              "at": int(now), "fhReset": q["primary"].get("resets_at"), "est": False}
     except Exception as e:  # noqa: BLE001
         log("quota vscode: " + repr(e)[:120])
-    # デスクトップ：アプリが出来事のたびに書く記録の最後の値（今の値ではない）。5時間たっていれば5時間枠はリセット済みとみなす
+    # デスクトップ：アプリが出来事のたびに書く記録の最後の値に、その後の会話のトークン量を足して推定する（usage_est.py）
     try:
         hp = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Claude-Data" / "claude_pzs8sxrjxfjjc" / "plan-usage-history.json"
         sm = json.loads(hp.read_text(encoding="utf-8"))["samples"]
         if sm:
             last = sm[-1]
             t = last["t"] / 1000 if last["t"] > 1e12 else last["t"]
-            fh = last["u"].get("fh", 0) if now - t < 5 * 3600 else 0
-            out["desktop"] = {"fh": int(fh), "sd": int(last["u"].get("sd", 0)), "at": int(t), "est": True}
+            import usage_est
+            e = usage_est.estimate(t, last["u"].get("fh", 0), last["u"].get("sd", 0), now)
+            out["desktop"] = dict(e, at=int(now), est=True)
     except Exception as e:  # noqa: BLE001
         log("quota desktop: " + repr(e)[:120])
     return out
