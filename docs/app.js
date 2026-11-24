@@ -233,7 +233,13 @@ function progressHtml(p) {
   const tasks = p.tasks || [];
   const doneN = tasks.filter((t) => t.s === '済').length;
   const MARK = { '済': '✓', '途中': '◐', '未': '○' };
-  const tasksHtml = tasks.length ? `<div class="wtasks">${tasks.map((t) => `<div class="wtask ts-${t.s === '済' ? 'done' : t.s === '途中' ? 'doing' : 'todo'}"><span class="tm">${MARK[t.s] || '○'}</span>${esc(t.t)}</div>`).join('')}</div>` : '';
+  const trow = (t) => `<div class="wtask ts-${t.s === '済' ? 'done' : t.s === '途中' ? 'doing' : 'todo'}"><span class="tm">${MARK[t.s] || '○'}</span>${esc(t.t)}</div>`;
+  // 作業の数に上限はない。多いとき（10個超）は済んだ分だけ折りたたむ
+  const fold = tasks.length > 10 && doneN > 0;
+  const tasksHtml = !tasks.length ? '' : fold
+    ? `<details class="wses"><summary>済み ${doneN}件</summary><div class="wtasks">${tasks.filter((t) => t.s === '済').map(trow).join('')}</div></details>
+       <div class="wtasks">${tasks.filter((t) => t.s !== '済').map(trow).join('')}</div>`
+    : `<div class="wtasks">${tasks.map(trow).join('')}</div>`;
   return `<div class="wprog${n === 4 ? ' maybe' : ''}">
       <span class="wstage"><span class="wdots">${dots}</span>${esc(p.stage)}${tasks.length ? `<span class="meta">　${doneN}/${tasks.length}済み</span>` : ''}</span>
       ${p.line ? `<span class="wline">${esc(p.line)}</span>` : ''}

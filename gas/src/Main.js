@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 11;
+var VERSION = 12;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';
@@ -44,7 +44,7 @@ function doPost(e) {
         sessions: (it.sessions || []).slice(0, 5).map(function (s) {
           return { t: String(s.t || '').slice(0, 60), d: String(s.d || '').slice(0, 10) };
         }),
-        tasks: (it.tasks || []).slice(0, 8).map(function (t) {
+        tasks: (it.tasks || []).slice(0, 60).map(function (t) {
           return { t: String(t.t || '').slice(0, 40), s: ['済', '途中', '未'].indexOf(t.s) >= 0 ? t.s : '未' };
         }),
         at: new Date().toISOString()
