@@ -295,6 +295,7 @@ button.wlink:hover { text-decoration: underline; }
 .pbtn .pn { display: block; overflow-wrap: anywhere; }
 .pbtn.rec .pn { font-weight: 700; }
 .pbtn .meta { display: block; color: var(--muted); font-size: .78rem; margin: 0; }
+.pick .psw { text-align: right; margin: -2px 0 2px; }
 .ptight { color: #c07a1f; font-weight: 700; }
 @media (pointer: coarse) { .pbtn { min-height: 44px; } }
 

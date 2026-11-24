@@ -236,6 +236,8 @@ def collect():
         if f["cwd"] and pathlib.PurePath(f["cwd"]).name == "_llm":   # やりたいことの見立て役（claude -p）
             continue
         dinfo = didx.get(p.stem)
+        if f["entry"] != "claude-desktop":   # VS Code に切り替えた会話は、デスクトップ側の印（アーカイブ・開いた時刻）を使わない
+            dinfo = None
         if dinfo and dinfo[1]:         # デスクトップでアーカイブ済み
             continue
         st = judge(f, now - f["at"], live.get(p.stem, ""))
@@ -255,6 +257,8 @@ def collect():
             "open": (dinfo[0] if dinfo else "") if f["entry"] == "claude-desktop" else p.stem,
             "rc": f["bridge"].split("_", 1)[1] if "_" in f["bridge"] else "",
         }
+        if f["entry"] == "claude-desktop":
+            s["cli"] = p.stem          # もう片方（VS Code）で開くための記録のID
         if st == "ask" and dinfo and dinfo[3] > f["at"] + 5:   # 質問のあとに本人が開いた（返事はまだ）
             s["seen"] = 1
         out.append(s)

@@ -192,6 +192,18 @@ function sessionLinks(s) {
   return { app, web };
 }
 
+// もう片方のアプリで開く（会話の記録は同じファイルなので、続きからそのまま話せる）。作業中は両方で書き合うので出さない
+function switchTo(s) {
+  if (PHONE || s.state === 'work') return null;
+  if (s.app === 'VS Code' && RE_UUID.test(s.open || '')) return { app: 'デスクトップ', url: `claude://resume?session=${s.open}` };
+  if (s.app === 'デスクトップ' && RE_UUID.test(s.cli || '')) return { app: 'VS Code', url: `vscode://anthropic.claude-code/open?session=${s.cli}` };
+  return null;
+}
+function switchHtml(s) {
+  const sw = switchTo(s);
+  return sw ? `<a class="slink" href="${esc(sw.url)}" title="${esc(`${sw.app}で続きを開く。${quotaText(sw.app)}。開いたら、元のアプリの方では送らない`)}">${sw.app}に切り替え${quotaTight(sw.app) ? '（枠わずか）' : ''}</a>` : '';
+}
+
 function renderSessions(data) {
   const el = $('#sessions');
   if (!data) { el.innerHTML = '<div class="muted">まだ届いていません（PCの見回り役が未起動）</div>'; return; }
@@ -208,7 +220,7 @@ function renderSessions(data) {
       : s.hide ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" data-undo="1">戻す</button>` : '';
     return `<div class="srow st-${s.hide ? 'done' : s.state === 'ask' && s.seen ? 'seen' : esc(s.state)}">
       ${main ? `<a class="sbody" href="${esc(main)}"${main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
-      <div class="meta">${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub}${btn}</div></div>`;
+      <div class="meta">${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub} ${switchHtml(s)}${btn}</div></div>`;
   };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
   const sorted = [...list].sort((a, b) => b.at - a.at);
@@ -317,7 +329,7 @@ function continueList(w, t) {
   const seen = new Set();
   return [...own, ...ses].filter((x) => continueUrl(x, '') && !seen.has(x.open) && seen.add(x.open)).slice(0, 3).map((x) => {
     const l = live.find((y) => y.open === x.open);
-    return { ...x, t: (l && l.title) || x.t || 'この作業の会話', rc: l && RE_RC.test(l.rc || '') ? l.rc : '' };
+    return { ...x, cli: l && l.cli, state: l && l.state, t: (l && l.title) || x.t || 'この作業の会話', rc: l && RE_RC.test(l.rc || '') ? l.rc : '' };
   });
 }
 function pickHtml(w, t) {
@@ -326,7 +338,7 @@ function pickHtml(w, t) {
     const url = PHONE ? (x.rc ? `https://claude.ai/code/session_${x.rc}` : '') : continueUrl(x, `続き：やりたいこと「${w.text}」${task ? `の作業「${task}」` : ''}を進めよう`);
     const tight = quotaTight(x.app) ? '・<span class="ptight">枠が残りわずか</span>' : '';
     const inner = `<span class="pn">${esc(x.t)}</span><span class="meta">${esc(x.app)}${x.d ? '・' + md(x.d) : ''}${tight}${url ? '' : '・PCで開けます'}</span>`;
-    return url ? `<a class="pbtn" href="${esc(url)}"${PHONE ? ' target="_blank" rel="noopener noreferrer"' : ''}>${inner}</a>` : `<div class="pbtn off">${inner}</div>`;
+    return (url ? `<a class="pbtn" href="${esc(url)}"${PHONE ? ' target="_blank" rel="noopener noreferrer"' : ''}>${inner}</a>` : `<div class="pbtn off">${inner}</div>`) + (switchTo(x) ? `<div class="meta psw">${switchHtml(x)}</div>` : '');
   }).join('');
   let fresh;
   if (PHONE) {

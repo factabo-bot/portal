@@ -1,5 +1,5 @@
 // 同じオリジンに他のアプリが同居しているので、キャッシュ名は必ず portal- で始め、消すのも portal- のものだけ。
-const CACHE = 'portal-v27';
+const CACHE = 'portal-v28';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon-v1.svg', 'icon-v1-192.png', 'icon-v1-512.png'];
 
 self.addEventListener('install', (e) => {
