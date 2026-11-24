@@ -163,3 +163,30 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .slink { margin-left: 6px; color: var(--muted); }
 .h2r { margin-left: auto; font-weight: 400; text-decoration: none; }
 .card h2:has(.h2r) { display: flex; align-items: center; gap: 6px; }
+
+/* やりたいこと */
+.wish-form { display: flex; gap: 6px; }
+.wish-form input, .wdrop input { flex: 1; min-width: 0; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.wtabs { display: flex; gap: 4px; margin: 10px 0 4px; }
+.wtabs button { border: none; background: none; padding: 3px 10px; border-radius: 99px; color: var(--muted); cursor: pointer; font-size: .85rem; }
+.wtabs button.on { background: var(--chip); color: var(--ink); font-weight: 700; }
+.wrow { padding: 7px 0; border-top: 1px solid var(--line); }
+.wrow:first-child { border-top: none; }
+.wmain { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+.wtext { min-width: 0; overflow-wrap: anywhere; }
+.wops { display: flex; gap: 4px; flex: none; }
+.wrow .meta { color: var(--muted); font-size: .78rem; }
+.wnote { font-size: .85rem; color: var(--muted); margin-top: 2px; }
+.wdrop { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.wprog { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--chip); font-size: .85rem; }
+.wprog.maybe { outline: 2px solid var(--accent); }
+.wstage { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; margin-right: 8px; }
+.wdots { display: inline-flex; gap: 3px; }
+.wdots i { width: 14px; height: 5px; border-radius: 3px; background: var(--line); }
+.wdots i.on { background: var(--accent); }
+.wline { overflow-wrap: anywhere; }
+.wask { display: block; color: var(--accent); margin-top: 2px; }
+.wses { margin-top: 4px; }
+.wses summary { cursor: pointer; color: var(--muted); font-size: .8rem; }
+.wses div { padding-left: 1em; }
+.wprog .meta { margin-top: 2px; }

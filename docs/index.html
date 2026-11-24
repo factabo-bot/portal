@@ -44,6 +44,19 @@
 
   <section class="right">
     <div class="card">
+      <h2>やりたいこと <span class="sub" id="wish-count"></span></h2>
+      <form id="wish-form" class="wish-form">
+        <input id="wish-input" maxlength="200" placeholder="〇〇したい！" autocomplete="off">
+        <button class="btn">追加</button>
+      </form>
+      <div class="wtabs" role="tablist">
+        <button type="button" data-wt="open" class="on">やりたい</button>
+        <button type="button" data-wt="done">やった</button>
+        <button type="button" data-wt="drop">やめた</button>
+      </div>
+      <div id="wishes"><div class="muted">読み込み中…</div></div>
+    </div>
+    <div class="card">
       <h2>Claudeのセッション <span class="sub">押すと開きます</span><a class="btn small ghost h2r" href="https://claude.ai/code" target="_blank" rel="noopener noreferrer">新しく話す</a></h2>
       <div id="sessions"><div class="muted">読み込み中…</div></div>
     </div>

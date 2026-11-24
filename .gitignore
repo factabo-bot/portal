@@ -5,3 +5,5 @@ watcher/state.json
 watcher/run.log
 watcher/__pycache__/
 watcher/accounts.json
+watcher/wish_state.json
+watcher/_llm/

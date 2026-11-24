@@ -88,7 +88,7 @@ async function loadRemote() {
   const cached = load(LS.remote, null);
   if (cached) renderRemote(cached);
   if (!cfg.url) {
-    $('#events').innerHTML = $('#pest').innerHTML = $('#sessions').innerHTML =
+    $('#events').innerHTML = $('#pest').innerHTML = $('#sessions').innerHTML = $('#wishes').innerHTML =
       '<div class="muted">窓口が未設定です。<button class="btn small ghost" data-open-setup>設定する</button></div>';
     return;
   }
@@ -146,6 +146,8 @@ function renderRemote(j) {
   }
   // セッション
   if ('sessions' in j) renderSessions(j.sessions);
+  // やりたいこと
+  if (Array.isArray(j.wishes)) { wishes = j.wishes; renderWishes(); }
   // 予察
   if (j.pestError) $('#pest').innerHTML = `<div class="muted">予察ログを読めませんでした：${esc(j.pestError)}</div>`;
   else if (j.pest === null) $('#pest').innerHTML = '<div class="muted">予察ログが見つかりません</div>';
@@ -209,6 +211,109 @@ function renderSessions(data) {
     + (rest.length ? `<details class="sdone"><summary>ほか ${rest.length}件（48時間以内）</summary>${rest.map(row).join('')}</details>` : '')
     + `<div class="supd${stale ? ' stale' : ''}">PCから ${at.getMonth() + 1}/${at.getDate()} ${hm(at)} に更新${stale ? '（PCが止まっているかもしれません）' : ''}</div>`;
 }
+
+// ---------- やりたいこと ----------
+let wishes = [];
+let wishTab = 'open';
+let wishDropping = null; // 「やめた」の理由を入力中のID
+const md = (s) => { const m = String(s || '').match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${+m[1]}/${+m[2]}` : ''; };
+function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+
+// Claude による見立て（1日1回PCが更新）。段階は5つ
+const STAGE_N = { '未着手': 0, '考え中': 1, '進んでいる': 2, 'ほぼできた': 3, 'かなったかも': 4 };
+function progressHtml(p) {
+  if (!p || !(p.stage in STAGE_N)) return '';
+  const n = STAGE_N[p.stage];
+  const dots = [0, 1, 2, 3].map((i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('');
+  const ses = (p.sessions || []).length
+    ? `<details class="wses"><summary>関係するセッション ${p.sessions.length}件</summary>${p.sessions.map((s) => `<div>${esc(s.t)} <span class="meta">${md(s.d)}</span></div>`).join('')}</details>` : '';
+  return `<div class="wprog${n === 4 ? ' maybe' : ''}">
+      <span class="wstage"><span class="wdots">${dots}</span>${esc(p.stage)}</span>
+      ${p.line ? `<span class="wline">${esc(p.line)}</span>` : ''}
+      ${n === 4 ? '<span class="wask">かなっていたら「やった」を押してください</span>' : ''}
+      ${ses}<div class="meta">Claudeの見立て・${md(p.at)}</div></div>`;
+}
+
+function renderWishes() {
+  const n = wishes.filter((w) => w.state === 'open').length;
+  $('#wish-count').textContent = n ? `${n}件` : '';
+  document.querySelectorAll('[data-wt]').forEach((b) => b.classList.toggle('on', b.dataset.wt === wishTab));
+  const list = wishes.filter((w) => w.state === wishTab);
+  if (!list.length) {
+    $('#wishes').innerHTML = `<div class="muted">${wishTab === 'open' ? 'まだありません。思いついたら上に一言どうぞ' : 'まだありません'}</div>`;
+    return;
+  }
+  $('#wishes').innerHTML = list.map((w) => {
+    const id = esc(w.id);
+    if (wishTab === 'open') {
+      const drop = wishDropping === w.id ? `<div class="wdrop">
+          <input data-note="${id}" maxlength="300" placeholder="やめた理由（なくてもよい）">
+          <button class="btn small" data-wa="drop-ok" data-id="${id}">やめた</button>
+          <button class="btn small ghost" data-wa="drop-cancel">戻る</button></div>` : '';
+      return `<div class="wrow"><div class="wmain"><span class="wtext">${esc(w.text)}</span>
+          <span class="wops"><button class="btn small ghost" data-wa="done" data-id="${id}">やった</button>
+          <button class="btn small ghost" data-wa="drop" data-id="${id}">やめた</button></span></div>
+          <div class="meta">${md(w.at)}に思った</div>${progressHtml(w.progress)}${drop}</div>`;
+    }
+    return `<div class="wrow"><div class="wmain"><span class="wtext">${esc(w.text)}</span>
+        <span class="wops"><button class="btn small ghost" data-wa="open" data-id="${id}">やりたいに戻す</button></span></div>
+        <div class="meta">${md(w.at)}に思った → ${md(w.closedAt)}に${w.state === 'done' ? 'やった' : 'やめた'}</div>
+        ${w.note ? `<div class="wnote">${esc(w.note)}</div>` : ''}</div>`;
+  }).join('');
+}
+
+document.querySelector('.wtabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-wt]');
+  if (!b) return;
+  wishTab = b.dataset.wt; wishDropping = null; renderWishes();
+});
+
+$('#wish-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('#wish-input').value.trim();
+  if (!text) return;
+  if (!cfg.url) { setStatus('窓口が未設定です'); return; }
+  const tmp = { id: 'tmp' + Date.now(), text, at: today(), state: 'open' };
+  wishes.unshift(tmp); wishTab = 'open'; renderWishes();
+  $('#wish-input').value = '';
+  try {
+    const j = await post({ type: 'wishAdd', text, at: today() });
+    if (!j.ok) throw new Error(j.error);
+    wishes = wishes.map((w) => (w === tmp ? j.wish : w));
+    setStatus('');
+  } catch {
+    wishes = wishes.filter((w) => w !== tmp);
+    $('#wish-input').value = text;
+    setStatus('追加できませんでした。もう一度押してください');
+  }
+  renderWishes();
+});
+
+$('#wishes').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-wa]');
+  if (!b) return;
+  const act = b.dataset.wa, id = b.dataset.id;
+  if (act === 'drop') { wishDropping = id; renderWishes(); document.querySelector(`[data-note="${id}"]`)?.focus(); return; }
+  if (act === 'drop-cancel') { wishDropping = null; renderWishes(); return; }
+  const state = act === 'drop-ok' ? 'drop' : act;
+  const body = { type: 'wishUpdate', id, state };
+  if (act === 'drop-ok') body.note = document.querySelector(`[data-note="${id}"]`)?.value || '';
+  const w = wishes.find((x) => x.id === id);
+  if (!w) return;
+  const before = { ...w };
+  Object.assign(w, { state, closedAt: state === 'open' ? '' : today() }, body.note !== undefined ? { note: body.note } : {});
+  wishDropping = null; renderWishes();
+  try {
+    const j = await post(body);
+    if (!j.ok) throw new Error(j.error);
+    Object.assign(w, j.wish);
+    setStatus(state === 'done' ? 'やった！に移しました' : state === 'drop' ? 'やめた、に移しました' : 'やりたい、に戻しました');
+  } catch {
+    Object.assign(w, before);
+    setStatus('保存できませんでした。もう一度押してください');
+  }
+  renderWishes();
+});
 
 function setStatus(t) { $('#status').textContent = t; }
 
