@@ -277,3 +277,9 @@ a.wlink:hover { text-decoration: underline; }
 .hrow2 .r2 { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 1px; }
 .hrow2 .r2 .up { color: #c0392b; } .hrow2 .r2 .down { color: #2e6fb5; }
 @media (prefers-color-scheme: dark) { .hrow2 .r2 .up { color: #ff8a73; } .hrow2 .r2 .down { color: #7fb2ff; } }
+
+.blist { margin-top: 8px; }
+.brow { padding: 5px 0; border-top: 1px dashed var(--line); font-size: .88rem; }
+.brow .r1 { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.brow .mbar { height: 6px; margin: 4px 0 0; }
+.bwarn { font-size: .82rem; color: var(--accent); margin-bottom: 6px; }

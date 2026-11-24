@@ -366,7 +366,9 @@ $('#wishes').addEventListener('click', async (e) => {
 
 // ---------- 家計（マネーフォワードの週メールから） ----------
 const yen = (n) => `${Math.round(n).toLocaleString('ja-JP')}円`;
+let budgetShown = false;
 function renderMf(mf, err) {
+  if (budgetShown) return;   // お金の合言葉がある端末では、CSV の分類別を出す
   const el = $('#mf');
   if (err) { el.innerHTML = `<div class="muted">読めませんでした（Gmailの許可が要るかもしれません）</div>`; return; }
   const now = new Date();
@@ -472,7 +474,40 @@ function renderKeihiCard() {
   const on = !!(cfg.url && cfg.keihi);
   $('#keihi-card').hidden = !on;
   $('#hold-card').hidden = !on;
-  if (on) loadHoldings();
+  if (on) { loadHoldings(); loadBudget(); }
+}
+
+// ---------- 家計の分類別（マネーフォワードの CSV。お金の合言葉がある端末だけ） ----------
+async function loadBudget() {
+  try {
+    const j = await post({ type: 'budgetGet' }, cfg.keihi);
+    if (!j.ok || !j.budget) return;
+    budgetShown = true;
+    renderBudget(j.budget);
+  } catch { /* 週メールの目安のまま */ }
+}
+function renderBudget(b) {
+  const now = new Date();
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const [y, m] = b.month.split('-').map(Number);
+  const dim = new Date(y, m, 0).getDate();
+  const dayOf = b.month === thisMonth ? Math.min(dim, Number((b.through || '').slice(8, 10)) || now.getDate()) : dim;
+  const pace = dayOf / dim;
+  const bar = (v, t) => {
+    if (!t) return '';
+    const pct = Math.min(100, (v / t) * 100), over = v > t * pace;
+    return `<div class="mbar"><div class="mfill${over ? ' over' : ''}" style="width:${pct.toFixed(1)}%"></div>${pace < 1 ? `<div class="mpace" style="left:${(pace * 100).toFixed(1)}%"></div>` : ''}</div>`;
+  };
+  const own = b.cats.filter((c) => c.own), other = b.cats.filter((c) => !c.own && c.actual);
+  const crow = (c) => `<div class="brow"><div class="r1"><span>${esc(c.name)}</span><span><b>${yen(c.actual)}</b> <span class="meta">／ 目標 ${yen(c.own)}${c.mf ? `・MF予算 ${yen(c.mf)}` : ''}</span></span></div>${bar(c.actual, c.own)}</div>`;
+  const stale = b.month !== thisMonth;
+  $('#mf').innerHTML = `${stale ? `<div class="bwarn">今月のCSVはまだありません。表示は${m}月分です（マネーフォワードで今月の「収入・支出詳細」を落として 00_Inbox へ）</div>` : ''}
+    <div class="mrow"><span class="mbig">${yen(b.living)}</span><span class="muted">純生活費 ／ 目標 ${yen(b.livingTarget)}（${Math.round((b.living / b.livingTarget) * 100)}%）</span></div>
+    ${bar(b.living, b.livingTarget)}
+    <div class="meta">${m}月・${md(b.through)}までの明細。目標は「18_生活費_月額予算目標」、縦線は月の進み具合</div>
+    <div class="blist">${own.map(crow).join('')}</div>
+    ${other.length ? `<details class="hgrp"><summary><span>目標のない分類</span><span>${yen(other.reduce((a, c) => a + c.actual, 0))}</span></summary>${other.map((c) => `<div class="brow"><div class="r1"><span>${esc(c.name)}</span><span>${yen(c.actual)}${c.mf ? ` <span class="meta">MF予算 ${yen(c.mf)}</span>` : ''}</span></div></div>`).join('')}</details>` : ''}`;
+  document.querySelector('#mf').closest('.card').querySelector('h2 .sub').textContent = 'マネーフォワードのCSVから・分類別';
 }
 
 // ---------- 保有資産（お金の合言葉がある端末だけ） ----------
