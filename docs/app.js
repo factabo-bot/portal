@@ -397,6 +397,7 @@ let stockEditing = false;
 let lastStocks = null, lastStocksErr = null, lastHoldings = null;
 function renderStocks(st, err) {
   const el = $('#stocks');
+  if (!el) return;   // 株価の欄は 11/24 に保有資産へまとめて廃止
   if (st !== undefined) { lastStocks = st; lastStocksErr = err; }
   st = lastStocks; err = lastStocksErr;
   if (stockEditing) return renderStockEditor();
@@ -440,13 +441,13 @@ function renderStockEditor() {
     <div class="edit-bar"><button class="btn small ghost" data-sk="add">＋ 銘柄</button>
     <button class="btn small ghost" data-sk="cancel">やめる</button><button class="btn small" data-sk="save">保存</button></div>`;
 }
-$('#stocks-edit').addEventListener('click', () => { stockEditing = !stockEditing; stockList = JSON.parse(JSON.stringify(stockList)); stockEditing ? renderStockEditor() : loadRemote(); });
-$('#stocks').addEventListener('input', (e) => {
+$('#stocks-edit')?.addEventListener('click', () => { stockEditing = !stockEditing; stockList = JSON.parse(JSON.stringify(stockList)); stockEditing ? renderStockEditor() : loadRemote(); });
+$('#stocks')?.addEventListener('input', (e) => {
   const i = +e.target.dataset.i; if (Number.isNaN(i)) return;
   if (e.target.classList.contains('sk-code')) stockList[i].code = e.target.value.trim().toUpperCase();
   if (e.target.classList.contains('sk-name')) stockList[i].name = e.target.value.trim();
 });
-$('#stocks').addEventListener('click', async (e) => {
+$('#stocks')?.addEventListener('click', async (e) => {
   const b = e.target.closest('[data-sk]'); if (!b) return;
   const a = b.dataset.sk;
   if (a === 'add') { stockList.push({ code: '', name: '' }); renderStockEditor(); }
@@ -493,22 +494,24 @@ function renderHoldings(h) {
   $('#hold-at').textContent = `株は${h.quoteTime ? hm(new Date(h.quoteTime * 1000)) : '—'}時点・投信は${md(h.at)}時点`;
   const total = h.stockTotal + h.fundTotal, pnl = h.stockPnl + h.fundPnl;
   const jp = h.stocks.filter((s) => s.cur === 'JPY'), us = h.stocks.filter((s) => s.cur !== 'JPY');
-  const srow = (s) => `<div class="hrow"><span class="hn">${esc(s.name)} <span class="meta">${esc(s.code)}・${esc(s.inst)}</span></span>
-      <span class="hv">${yen(s.value)}</span><span class="hd ${pnlCls(s.day)}">${sign(s.day)}</span>
-      <span class="hp ${pnlCls(s.pnl)}">${sign(s.pnl)}（${s.pnlPct >= 0 ? '+' : ''}${s.pnlPct.toFixed(1)}%）</span></div>`;
-  const frow = (f) => `<div class="hrow"><span class="hn">${esc(f.name)} <span class="meta">${esc(f.inst)}</span></span>
-      <span class="hv">${yen(f.value)}</span><span class="hd"></span>
-      <span class="hp ${pnlCls(f.pnl)}">${sign(f.pnl)}（${f.pnlPct >= 0 ? '+' : ''}${f.pnlPct.toFixed(1)}%）</span></div>`;
+  const fmtP = (n, cur) => (n == null ? '—' : n.toLocaleString('ja-JP', { maximumFractionDigits: cur === 'JPY' ? 1 : 2 }) + (cur === 'USD' ? 'ドル' : '円'));
+  const dpct = (s) => (s.value - s.day ? (s.day / (s.value - s.day)) * 100 : 0);
+  const srow = (s) => `<div class="hrow2"><div class="r1"><span class="hn">${esc(s.name)} <span class="meta">${esc(s.code)}・${esc(s.inst)}</span></span><span class="hv">${yen(s.value)}</span></div>
+      <div class="r2"><span>${fmtP(s.price, s.cur)} <span class="${pnlCls(s.day)}">${dpct(s) >= 0 ? '+' : ''}${dpct(s).toFixed(2)}%</span></span>
+      <span>前日比 <span class="${pnlCls(s.day)}">${sign(s.day)}円</span></span>
+      <span>損益 <span class="${pnlCls(s.pnl)}">${sign(s.pnl)}円（${s.pnlPct >= 0 ? '+' : ''}${s.pnlPct.toFixed(1)}%）</span></span></div></div>`;
+  const frow = (f) => `<div class="hrow2"><div class="r1"><span class="hn">${esc(f.name)} <span class="meta">${esc(f.inst)}</span></span><span class="hv">${yen(f.value)}</span></div>
+      <div class="r2"><span>損益 <span class="${pnlCls(f.pnl)}">${sign(f.pnl)}円（${f.pnlPct >= 0 ? '+' : ''}${f.pnlPct.toFixed(1)}%）</span></span></div></div>`;
   const sum = (a, k) => a.reduce((x, y) => x + y[k], 0);
-  const grp = (title, list, row, extra) => list.length ? `<details class="hgrp"><summary><span>${title}</span><span>${yen(sum(list, 'value'))}</span>${extra || ''}</summary>
-      <div class="hhead"><span>銘柄</span><span>評価額</span><span>前日比</span><span>評価損益</span></div>${list.map(row).join('')}</details>` : '';
+  const grp = (title, list, row, extra, open, stock) => list.length ? `<details class="hgrp"${open ? ' open' : ''}><summary><span>${title}</span><span>${yen(sum(list, 'value'))}</span>${extra || ''}</summary>
+      ${list.map(row).join('')}</details>` : '';
   const tile = (label, v, p, extra) => `<div class="htile"><div class="meta">${label}</div><div class="hbig">${yen(v)}</div>
       <div class="${pnlCls(p)}">評価損益 ${sign(p)}円</div>${extra || ''}</div>`;
   $('#hold').innerHTML = `<div class="mrow"><span class="mbig">${yen(total)}</span>
       <span class="${pnlCls(pnl)}">評価損益 ${sign(pnl)}円</span></div>
     <div class="htiles">${tile('個別株（日本株＋米国株）', h.stockTotal, h.stockPnl, `<div class="meta ${pnlCls(h.stockDay)}">前日比 ${sign(h.stockDay)}円</div>`)}
       ${tile(`投資信託（${md(h.at)}時点）`, h.fundTotal, h.fundPnl)}</div>
-    ${grp('日本株', jp, srow)}${grp('米国株', us, srow, `<span class="meta">1ドル${h.fx ? h.fx.toFixed(2) : '—'}円</span>`)}${grp('投資信託', h.funds, frow)}
+    ${grp('日本株', jp, srow, '', true, true)}${grp('米国株', us, srow, `<span class="meta">1ドル${h.fx ? h.fx.toFixed(2) : '—'}円</span>`, true, true)}${grp('投資信託', h.funds, frow)}
     <div class="meta">投資信託の基準価額は貼り付けた日のまま。売買したら貼り直してください</div>`;
 }
 $('#hold-paste').addEventListener('click', () => { $('#hold-import').hidden = !$('#hold-import').hidden; $('#hold-text').focus(); });
