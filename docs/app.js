@@ -207,11 +207,13 @@ function renderSessions(data) {
   };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
   const sorted = [...list].sort((a, b) => b.at - a.at);
-  const head = sorted.slice(0, 10), rest = sorted.slice(10);
+  const urgent = (x) => x.state !== 'done';   // 質問あり・止まっている・作業中は全部出す
+  const head = [], rest = [];
+  for (const x of sorted) (urgent(x) || head.filter((y) => !urgent(y)).length < 5 ? head : rest).push(x);
   const at = new Date(data.at);
   const stale = Date.now() - at.getTime() > 90 * 60000;
   el.innerHTML = (head.length ? head.map(row).join('') : '<div class="muted">48時間以内のセッションはありません</div>')
-    + (rest.length ? `<details class="sdone"><summary>ほか ${rest.length}件（48時間以内）</summary>${rest.map(row).join('')}</details>` : '')
+    + (rest.length ? `<details class="sdone"><summary>ほか ${rest.length}件（返事済み・48時間以内）</summary>${rest.map(row).join('')}</details>` : '')
     + `<div class="supd${stale ? ' stale' : ''}">PCから ${at.getMonth() + 1}/${at.getDate()} ${hm(at)} に更新${stale ? '（PCが止まっているかもしれません）' : ''}</div>`;
 }
 
@@ -260,12 +262,12 @@ function progressHtml(p, w) {
     const cls = `wtask ts-${t.s === '済' ? 'done' : t.s === '途中' ? 'doing' : 'todo'}`;
     return !PHONE && w ? `<a class="${cls}" href="${esc(taskLink(w, t))}">${inner}</a>` : `<div class="${cls}">${inner}</div>`;
   };
-  // 作業の数に上限はない。多いとき（10個超）は済んだ分だけ折りたたむ
-  const fold = tasks.length > 10 && doneN > 0;
-  const tasksHtml = !tasks.length ? '' : fold
-    ? `<details class="wses"><summary>済み ${doneN}件</summary><div class="wtasks">${tasks.filter((t) => t.s === '済').map(trow).join('')}</div></details>
-       <div class="wtasks">${tasks.filter((t) => t.s !== '済').map(trow).join('')}</div>`
-    : `<div class="wtasks">${tasks.map(trow).join('')}</div>`;
+  // 作業の数に上限はない。出すのは「途中」と次の「未」1つだけ、全部は畳む（原則2）
+  const doing = tasks.filter((t) => t.s === '途中');
+  const next = tasks.find((t) => t.s === '未');
+  const shown = [...doing, ...(next ? [next] : [])];
+  const tasksHtml = !tasks.length ? '' : `<div class="wtasks">${shown.map(trow).join('')}</div>`
+    + (tasks.length > shown.length ? `<details class="wses"><summary>全部の作業（${tasks.length}）</summary><div class="wtasks">${tasks.map(trow).join('')}</div></details>` : '');
   return `<div class="wprog${n === 4 ? ' maybe' : ''}">
       <span class="wstage"><span class="wdots">${dots}</span>${esc(p.stage)}${tasks.length ? `<span class="meta">　${doneN}/${tasks.length}済み</span>` : ''}</span>
       ${p.line ? `<span class="wline">${esc(p.line)}</span>` : ''}
@@ -535,7 +537,7 @@ function renderHoldings(h) {
   const srow = (s) => `<div class="hrow2"><div class="r1"><span class="hn">${esc(s.name)} <span class="meta">${esc(s.code)}・${esc(s.inst)}</span></span><span class="hv">${yen(s.value)}</span></div>
       <div class="r2"><span>${fmtP(s.price, s.cur)} <span class="${pnlCls(s.day)}">${dpct(s) >= 0 ? '+' : ''}${dpct(s).toFixed(2)}%</span></span>
       <span>前日比 <span class="${pnlCls(s.day)}">${sign(s.day)}円</span></span>
-      <span>損益 <span class="${pnlCls(s.pnl)}">${sign(s.pnl)}円（${s.pnlPct >= 0 ? '+' : ''}${s.pnlPct.toFixed(1)}%）</span></span></div></div>`;
+      <span class="pl">損益 ${sign(s.pnl)}円（${s.pnlPct >= 0 ? '+' : ''}${s.pnlPct.toFixed(1)}%）</span></div></div>`;
   const frow = (f) => `<div class="hrow2"><div class="r1"><span class="hn">${esc(f.name)} <span class="meta">${esc(f.inst)}</span></span><span class="hv">${yen(f.value)}</span></div>
       <div class="r2"><span>損益 <span class="${pnlCls(f.pnl)}">${sign(f.pnl)}円（${f.pnlPct >= 0 ? '+' : ''}${f.pnlPct.toFixed(1)}%）</span></span></div></div>`;
   const sum = (a, k) => a.reduce((x, y) => x + y[k], 0);
@@ -547,7 +549,7 @@ function renderHoldings(h) {
       <span class="${pnlCls(pnl)}">評価損益 ${sign(pnl)}円</span></div>
     <div class="htiles">${tile('個別株（日本株＋米国株）', h.stockTotal, h.stockPnl, `<div class="meta ${pnlCls(h.stockDay)}">前日比 ${sign(h.stockDay)}円</div>`)}
       ${tile(`投資信託（${md(h.at)}時点）`, h.fundTotal, h.fundPnl)}</div>
-    ${grp('日本株', jp, srow, '', true, true)}${grp('米国株', us, srow, `<span class="meta">1ドル${h.fx ? h.fx.toFixed(2) : '—'}円</span>`, true, true)}${grp('投資信託', h.funds, frow)}
+    ${grp(`日本株 <span class="meta">${jp.length}銘柄</span>`, jp, srow)}${grp(`米国株 <span class="meta">${us.length}銘柄</span>`, us, srow, `<span class="meta">1ドル${h.fx ? h.fx.toFixed(2) : '—'}円</span>`)}${grp(`投資信託 <span class="meta">${h.funds.length}本</span>`, h.funds, frow)}
     <div class="meta">投資信託の基準価額は貼り付けた日のまま。売買したら貼り直してください</div>`;
 }
 $('#hold-paste').addEventListener('click', () => { $('#hold-import').hidden = !$('#hold-import').hidden; $('#hold-text').focus(); });
