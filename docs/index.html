@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>ポータル</title>
 <meta name="theme-color" content="#f6f4ef">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://www.google.com https://*.gstatic.com; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://api.open-meteo.com; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta name="referrer" content="no-referrer">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-v1.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-v1-192.png">
@@ -39,7 +41,13 @@
     </div>
   </section>
 
-  <section class="links" id="links"></section>
+  <section class="right">
+    <div class="card">
+      <h2>Claudeのセッション <span class="sub">VS Code・デスクトップ</span></h2>
+      <div id="sessions"><div class="muted">読み込み中…</div></div>
+    </div>
+    <div class="links" id="links"></div>
+  </section>
 </main>
 
 <dialog id="setup">
@@ -48,7 +56,9 @@
     <p class="muted">予定・予察・リンクの同期に使います。設定用のリンクから開いた場合は入力済みです。</p>
     <label>窓口のURL<input id="setup-url" type="url" autocomplete="off"></label>
     <label>合言葉<input id="setup-key" type="text" autocomplete="off"></label>
+    <div id="qr" class="qr" hidden></div>
     <div class="row-end">
+      <button type="button" id="qr-btn" class="btn ghost">スマホに渡す（QR）</button>
       <button value="cancel" class="btn ghost">閉じる</button>
       <button id="setup-save" value="save" class="btn">保存</button>
     </div>

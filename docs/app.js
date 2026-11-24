@@ -88,14 +88,13 @@ async function loadRemote() {
   const cached = load(LS.remote, null);
   if (cached) renderRemote(cached);
   if (!cfg.url) {
-    $('#events').innerHTML = $('#pest').innerHTML =
+    $('#events').innerHTML = $('#pest').innerHTML = $('#sessions').innerHTML =
       '<div class="muted">窓口が未設定です。<button class="btn small ghost" data-open-setup>設定する</button></div>';
     return;
   }
   setStatus('予定を読み込み中…');
   try {
-    const r = await fetch(`${cfg.url}?key=${encodeURIComponent(cfg.key)}&t=${Date.now()}`);
-    const j = await r.json();
+    const j = await post({ type: 'get' });
     if (!j.ok) throw new Error(j.error || 'ng');
     save(LS.remote, j);
     if (j.links && !editing) {
@@ -106,8 +105,19 @@ async function loadRemote() {
     setStatus('');
   } catch (e) {
     setStatus(cached ? '前回の内容を表示中（読み込みに失敗）' : '読み込みに失敗しました');
-    if (!cached) $('#events').innerHTML = $('#pest').innerHTML = '<div class="muted">読み込めませんでした</div>';
+    if (!cached) $('#events').innerHTML = $('#pest').innerHTML = $('#sessions').innerHTML = '<div class="muted">読み込めませんでした</div>';
   }
+}
+
+// 合言葉はURLに載せず、本文で送る（text/plain なので事前確認の通信が起きない）
+async function post(body) {
+  const r = await fetch(cfg.url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ ...body, key: cfg.key }),
+    referrerPolicy: 'no-referrer',
+  });
+  return r.json();
 }
 
 function ymd(d) { return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; }
@@ -134,6 +144,8 @@ function renderRemote(j) {
     });
     $('#events').innerHTML = groups.join('');
   }
+  // セッション
+  if ('sessions' in j) renderSessions(j.sessions);
   // 予察
   if (j.pestError) $('#pest').innerHTML = `<div class="muted">予察ログを読めませんでした：${esc(j.pestError)}</div>`;
   else if (j.pest === null) $('#pest').innerHTML = '<div class="muted">予察ログが見つかりません</div>';
@@ -147,6 +159,40 @@ function renderRemote(j) {
   }
 }
 
+// Claude のセッション（PCの見回り役が送ったもの）
+const ST = {
+  ask: '質問あり',
+  stuck: '止まっている',
+  work: '作業中',
+  done: '返事済み',
+};
+function ago(sec) {
+  const m = Math.round((Date.now() / 1000 - sec) / 60);
+  if (m < 1) return 'たった今';
+  if (m < 60) return `${m}分前`;
+  const h = Math.round(m / 60);
+  return h < 24 ? `${h}時間前` : `${Math.round(h / 24)}日前`;
+}
+function renderSessions(data) {
+  const el = $('#sessions');
+  if (!data) { el.innerHTML = '<div class="muted">まだ届いていません（PCの見回り役が未起動）</div>'; return; }
+  const list = data.sessions || [];
+  const row = (s) => `<div class="srow st-${esc(s.state)}">
+      <div class="sline"><span class="badge">${ST[s.state] || ''}</span><span class="stitle">${esc(s.title)}</span></div>
+      ${s.q ? `<div class="sq">${esc(s.q)}</div>` : ''}
+      <div class="meta">${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)}</div></div>`;
+  const pick = (st) => list.filter((s) => s.state === st);
+  const urgent = [...pick('ask'), ...pick('stuck')];
+  const work = pick('work');
+  const done = pick('done');
+  const at = new Date(data.at);
+  const stale = Date.now() - at.getTime() > 90 * 60000;
+  el.innerHTML = (urgent.length ? urgent.map(row).join('') : '<div class="muted">あなたの番のセッションはありません</div>')
+    + (work.length ? `<div class="sgroup">作業中</div>${work.map(row).join('')}` : '')
+    + (done.length ? `<details class="sdone"><summary>返事済み ${done.length}件（48時間以内）</summary>${done.map(row).join('')}</details>` : '')
+    + `<div class="supd${stale ? ' stale' : ''}">PCから ${at.getMonth() + 1}/${at.getDate()} ${hm(at)} に更新${stale ? '（PCが止まっているかもしれません）' : ''}</div>`;
+}
+
 function setStatus(t) { $('#status').textContent = t; }
 
 // ---------- リンク ----------
@@ -157,7 +203,7 @@ function iconHtml(l) {
   try { host = new URL(l.url).hostname; } catch {}
   const letter = esc((l.name || '?').trim().charAt(0));
   if (host && !host.endsWith('github.io')) {
-    return `<span class="ic" style="background:var(--card)"><img src="https://www.google.com/s2/favicons?domain=${esc(host)}&sz=64" alt="" loading="lazy" onerror="this.parentNode.style.background='${colorOf(l.name)}';this.replaceWith('${letter}')"></span>`;
+    return `<span class="ic" style="background:var(--card)"><img src="https://www.google.com/s2/favicons?domain=${esc(host)}&sz=64" alt="" loading="lazy" referrerpolicy="no-referrer" data-fb="${letter}" data-bg="${colorOf(l.name)}"></span>`;
   }
   return `<span class="ic" style="background:${colorOf(l.name)}">${letter}</span>`;
 }
@@ -169,6 +215,10 @@ function renderLinks() {
       <h2>${esc(s.title)}</h2>
       <div class="tiles">${s.links.map((l) => `<a class="tile" href="${esc(l.url)}">${iconHtml(l)}<span class="nm">${esc(l.name)}</span></a>`).join('')}</div>
     </div>`).join('');
+  root.querySelectorAll('img[data-fb]').forEach((img) => img.addEventListener('error', () => {
+    img.parentNode.style.background = img.dataset.bg;
+    img.replaceWith(img.dataset.fb);
+  }, { once: true }));
 }
 
 function renderEditor() {
@@ -230,12 +280,7 @@ async function saveLinks() {
   if (!cfg.url) { setStatus('この端末にだけ保存しました（窓口が未設定）'); return; }
   setStatus('保存中…');
   try {
-    const r = await fetch(cfg.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ key: cfg.key, type: 'saveLinks', links }),
-    });
-    const j = await r.json();
+    const j = await post({ type: 'saveLinks', links });
     if (!j.ok) throw new Error(j.error);
     links.savedAt = j.savedAt; save(LS.links, links);
     setStatus('保存しました（ほかの端末にも反映されます）');
@@ -257,6 +302,32 @@ document.addEventListener('click', (e) => {
   $('#setup-key').value = cfg.key || '';
   $('#setup').showModal();
 });
+// スマホへ設定を渡すQR（読み取り用の合言葉入り。押したときだけ作り、閉じたら消す）
+const QR_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+const QR_SRI = 'sha384-mZT2gIty7ZDdOGkxfP6joZcYdMW1Jvj9dRlfpTmaJAKKXTqzygtB22k7FLe+KZC1';
+function loadQrLib() {
+  if (window.qrcode) return Promise.resolve();
+  return new Promise((ok, ng) => {
+    const s = document.createElement('script');
+    s.src = QR_SRC; s.integrity = QR_SRI; s.crossOrigin = 'anonymous'; s.referrerPolicy = 'no-referrer';
+    s.onload = ok; s.onerror = ng;
+    document.head.appendChild(s);
+  });
+}
+$('#qr-btn').addEventListener('click', async () => {
+  const box = $('#qr');
+  if (!box.hidden) { box.hidden = true; box.innerHTML = ''; return; }
+  const url = $('#setup-url').value.trim(), key = $('#setup-key').value.trim();
+  if (!url || !key) { box.hidden = false; box.textContent = '先にURLと合言葉を入れてください'; return; }
+  try { await loadQrLib(); } catch { box.hidden = false; box.textContent = 'QRの部品を読み込めませんでした'; return; }
+  const link = `${location.origin}${location.pathname}#setup=${encodeURIComponent(url + '|' + key)}`;
+  const q = window.qrcode(0, 'M'); q.addData(link); q.make();
+  box.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true })
+    + '<div class="muted">スマホのカメラで読み取ってください。人に見せないでください。</div>';
+  box.hidden = false;
+});
+$('#setup').addEventListener('close', () => { $('#qr').hidden = true; $('#qr').innerHTML = ''; });
+
 $('#setup-form').addEventListener('submit', (e) => {
   if (e.submitter && e.submitter.value === 'save') {
     cfg = { url: $('#setup-url').value.trim(), key: $('#setup-key').value.trim() };

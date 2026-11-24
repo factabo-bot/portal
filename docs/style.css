@@ -59,7 +59,7 @@ a { color: inherit; }
 @media (min-width: 860px) {
   .layout { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
 }
-.today, .links { display: grid; gap: 16px; min-width: 0; }
+.today, .links, .right { display: grid; gap: 16px; min-width: 0; }
 
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: 12px;
@@ -139,3 +139,21 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .tile { padding: 9px 10px; gap: 8px; }
 }
+
+/* Claudeのセッション */
+.srow { padding: 6px 0; border-top: 1px solid var(--line); }
+.srow:first-child { border-top: none; }
+.sline { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.stitle { min-width: 0; overflow-wrap: anywhere; }
+.badge { flex: none; font-size: .75rem; padding: 1px 7px; border-radius: 99px; background: var(--chip); color: var(--muted); }
+.st-ask .badge { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.st-stuck .badge { background: #c07a1f; color: #fff; }
+.sq { font-size: .85rem; margin-top: 2px; }
+.srow .meta, .supd { color: var(--muted); font-size: .78rem; }
+.supd { margin-top: 8px; }
+.supd.stale { color: var(--accent); }
+.sgroup { font-size: .8rem; color: var(--muted); margin: 10px 0 2px; }
+.sdone { margin-top: 8px; }
+.sdone summary { cursor: pointer; font-size: .85rem; color: var(--muted); }
+.qr { margin-top: 8px; text-align: center; }
+.qr svg { width: 220px; max-width: 100%; height: auto; background: #fff; }

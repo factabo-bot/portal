@@ -1,3 +1,6 @@
 gas/.local.json
 gas/.token
 gas/src/Secret.js
+watcher/state.json
+watcher/run.log
+watcher/__pycache__/
