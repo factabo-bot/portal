@@ -242,6 +242,15 @@ function progressHtml(p) {
       ${ses}<div class="meta">Claudeの見立て・${md(p.at)}</div></div>`;
 }
 
+// VS Code の Claude を、このやりたいことの伴走として開く（頼みごとは入力欄に入った状態。送るのは本人）
+function openCompanion(w) {
+  if (!w || !/^[0-9a-f]{8}$/.test(w.id)) return;
+  const prompt = `【やりたいこと伴走】「${w.text}」（やりたいことID ${w.id}・${md(w.at)}に思った）
+`
+    + 'これをかなえるまで伴走してください。関係する記憶と記録を確かめて、今どこまで来ているか・かなえるまでの作業の分け方・次の一歩を短く示してください。';
+  location.href = `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(prompt)}`;
+}
+
 function renderWishes() {
   const n = wishes.filter((w) => w.state === 'open').length;
   $('#wish-count').textContent = n ? `${n}件` : '';
@@ -259,7 +268,7 @@ function renderWishes() {
           <button class="btn small" data-wa="drop-ok" data-id="${id}">やめた</button>
           <button class="btn small ghost" data-wa="drop-cancel">戻る</button></div>` : '';
       return `<div class="wrow"><div class="wmain"><span class="wtext">${esc(w.text)}</span>
-          <span class="wops"><button class="btn small ghost" data-wa="done" data-id="${id}">やった</button>
+          <span class="wops">${PHONE ? '' : `<button class="btn small ghost" data-wa="buddy" data-id="${id}" title="VS CodeでClaudeと進める">伴走</button>`}<button class="btn small ghost" data-wa="done" data-id="${id}">やった</button>
           <button class="btn small ghost" data-wa="drop" data-id="${id}">やめた</button></span></div>
           <div class="meta">${md(w.at)}に思った</div>${progressHtml(w.progress)}${drop}</div>`;
     }
@@ -289,6 +298,7 @@ $('#wish-form').addEventListener('submit', async (e) => {
     if (!j.ok) throw new Error(j.error);
     wishes = wishes.map((w) => (w === tmp ? j.wish : w));
     setStatus('');
+    if (!PHONE) openCompanion(j.wish);
   } catch {
     wishes = wishes.filter((w) => w !== tmp);
     $('#wish-input').value = text;
@@ -303,6 +313,7 @@ $('#wishes').addEventListener('click', async (e) => {
   const act = b.dataset.wa, id = b.dataset.id;
   if (act === 'drop') { wishDropping = id; renderWishes(); document.querySelector(`[data-note="${id}"]`)?.focus(); return; }
   if (act === 'drop-cancel') { wishDropping = null; renderWishes(); return; }
+  if (act === 'buddy') { const w0 = wishes.find((x) => x.id === id); if (w0) openCompanion(w0); return; }
   const state = act === 'drop-ok' ? 'drop' : act;
   const body = { type: 'wishUpdate', id, state };
   if (act === 'drop-ok') body.note = document.querySelector(`[data-note="${id}"]`)?.value || '';

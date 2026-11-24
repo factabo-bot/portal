@@ -184,6 +184,8 @@ def collect():
         title, entry, cwd, last, last_text, owner, bridge = read_session(p)
         if entry not in APPS:          # sdk-cli（自動実行など）は出さない
             continue
+        if cwd and pathlib.PurePath(cwd).name == "_llm":   # やりたいことの見立て役（claude -p）
+            continue
         dinfo = didx.get(p.stem)
         if dinfo and dinfo[1]:         # デスクトップでアーカイブ済み
             continue
