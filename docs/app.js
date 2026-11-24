@@ -397,7 +397,61 @@ $('#stocks').addEventListener('click', async (e) => {
 // ---------- 経費の振り分け（経費の合言葉がある端末だけ） ----------
 let keihiItems = [];
 const KIND = { biz: '事業', personal: '私用', none: '対象外' };
-function renderKeihiCard() { $('#keihi-card').hidden = !(cfg.url && cfg.keihi); }
+function renderKeihiCard() {
+  const on = !!(cfg.url && cfg.keihi);
+  $('#keihi-card').hidden = !on;
+  $('#hold-card').hidden = !on;
+  if (on) loadHoldings();
+}
+
+// ---------- 保有資産（お金の合言葉がある端末だけ） ----------
+const sign = (n) => (n > 0 ? '+' : n < 0 ? '−' : '') + Math.abs(Math.round(n)).toLocaleString('ja-JP');
+const pnlCls = (n) => (n > 0 ? 'up' : n < 0 ? 'down' : '');
+async function loadHoldings() {
+  try {
+    const j = await post({ type: 'holdingsGet' }, cfg.keihi);
+    if (!j.ok) throw new Error(j.error);
+    renderHoldings(j.holdings);
+  } catch (e) {
+    $('#hold').innerHTML = `<div class="muted">読めませんでした${e.message === 'key' ? '（お金の合言葉が違います）' : ''}</div>`;
+  }
+}
+function renderHoldings(h) {
+  if (!h) { $('#hold').innerHTML = '<div class="muted">まだありません。「貼り付けて更新」から保有一覧を貼ってください</div>'; return; }
+  $('#hold-at').textContent = `株は${h.quoteTime ? hm(new Date(h.quoteTime * 1000)) : '—'}時点・投信は${md(h.at)}時点`;
+  const total = h.stockTotal + h.fundTotal, pnl = h.stockPnl + h.fundPnl;
+  const jp = h.stocks.filter((s) => s.cur === 'JPY'), us = h.stocks.filter((s) => s.cur !== 'JPY');
+  const srow = (s) => `<div class="hrow"><span class="hn">${esc(s.name)} <span class="meta">${esc(s.code)}・${esc(s.inst)}</span></span>
+      <span class="hv">${yen(s.value)}</span><span class="hd ${pnlCls(s.day)}">${sign(s.day)}</span>
+      <span class="hp ${pnlCls(s.pnl)}">${sign(s.pnl)}（${s.pnlPct >= 0 ? '+' : ''}${s.pnlPct.toFixed(1)}%）</span></div>`;
+  const frow = (f) => `<div class="hrow"><span class="hn">${esc(f.name)} <span class="meta">${esc(f.inst)}</span></span>
+      <span class="hv">${yen(f.value)}</span><span class="hd"></span>
+      <span class="hp ${pnlCls(f.pnl)}">${sign(f.pnl)}（${f.pnlPct >= 0 ? '+' : ''}${f.pnlPct.toFixed(1)}%）</span></div>`;
+  const sum = (a, k) => a.reduce((x, y) => x + y[k], 0);
+  const grp = (title, list, row, extra) => list.length ? `<details class="hgrp"><summary><span>${title}</span><span>${yen(sum(list, 'value'))}</span>${extra || ''}</summary>
+      <div class="hhead"><span>銘柄</span><span>評価額</span><span>前日比</span><span>評価損益</span></div>${list.map(row).join('')}</details>` : '';
+  $('#hold').innerHTML = `<div class="mrow"><span class="mbig">${yen(total)}</span>
+      <span class="${pnlCls(pnl)}">評価損益 ${sign(pnl)}円</span>
+      <span class="${pnlCls(h.stockDay)}">株の前日比 ${sign(h.stockDay)}円</span></div>
+    ${grp('日本株', jp, srow)}${grp('米国株', us, srow, `<span class="meta">1ドル${h.fx ? h.fx.toFixed(2) : '—'}円</span>`)}${grp('投資信託', h.funds, frow)}
+    <div class="meta">投資信託の基準価額は貼り付けた日のまま。売買したら貼り直してください</div>`;
+}
+$('#hold-paste').addEventListener('click', () => { $('#hold-import').hidden = !$('#hold-import').hidden; $('#hold-text').focus(); });
+$('#hold-cancel').addEventListener('click', () => { $('#hold-import').hidden = true; $('#hold-text').value = ''; });
+$('#hold-go').addEventListener('click', async () => {
+  const text = $('#hold-text').value;
+  if (!text.trim()) return;
+  setStatus('取り込み中…');
+  try {
+    const j = await post({ type: 'holdingsImport', text }, cfg.keihi);
+    if (!j.ok) throw new Error(j.error);
+    $('#hold-text').value = ''; $('#hold-import').hidden = true;
+    setStatus(`取り込みました（株${j.stocks}件・投信${j.funds}件）`);
+    loadHoldings();
+  } catch (e) {
+    setStatus(e.message === 'parse' ? '表を読み取れませんでした。見出し（株式(現物)・投資信託）ごと貼ってください' : '取り込めませんでした');
+  }
+});
 $('#keihi-load').addEventListener('click', loadKeihi);
 async function loadKeihi() {
   $('#keihi').innerHTML = '<div class="muted">読み込み中…（数十秒かかることがあります）</div>';

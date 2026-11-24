@@ -220,3 +220,23 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .kops .meta { margin-right: auto; color: var(--muted); font-size: .78rem; }
 .chk { display: flex !important; align-items: center; gap: 6px; }
 .chk input { width: auto; }
+
+/* 保有資産 */
+#hold .up, .hp.up, .hd.up { color: #c0392b; } #hold .down, .hp.down, .hd.down { color: #2e6fb5; }
+@media (prefers-color-scheme: dark) { #hold .up, .hp.up, .hd.up { color: #ff8a73; } #hold .down, .hp.down, .hd.down { color: #7fb2ff; } }
+.hgrp { border-top: 1px solid var(--line); padding: 6px 0; }
+.hgrp:first-of-type { margin-top: 8px; }
+.hgrp summary { cursor: pointer; display: flex; gap: 10px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.hgrp summary span:first-child { font-weight: 700; min-width: 4.5em; }
+.hhead, .hrow { display: grid; grid-template-columns: minmax(0, 1fr) 7.5em 6em 10.5em; gap: 8px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.hhead { color: var(--muted); font-size: .75rem; margin-top: 6px; }
+.hhead span:not(:first-child), .hv, .hd, .hp { text-align: right; }
+.hrow { padding: 4px 0; font-size: .88rem; border-top: 1px dashed var(--line); }
+.hn { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) {
+  .hhead { display: none; }
+  .hrow { grid-template-columns: minmax(0, 1fr) auto; }
+  .hrow .hd { display: none; }
+  .hrow .hp { grid-column: 2; }
+}
+#hold-text { width: 100%; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); font: inherit; font-size: .85rem; }

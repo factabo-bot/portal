@@ -55,12 +55,12 @@ function stocks_() {
   if (!list.length) return { list: [], quotes: [] };
   var cache = CacheService.getScriptCache();
   var quotes = list.map(function (s) {
-    var k = 'q_' + s.code;
+    var k = 'q1d_' + s.code;
     var c = cache.get(k);
     if (c) return JSON.parse(c);
     var q = { code: s.code, name: s.name || s.code };
     try {
-      var r = UrlFetchApp.fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(s.code) + '?range=5d&interval=1d',
+      var r = UrlFetchApp.fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(s.code) + '?range=1d&interval=1d',
         { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
       if (r.getResponseCode() === 200) {
         var meta = JSON.parse(r.getContentText()).chart.result[0].meta;

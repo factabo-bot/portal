@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 7;
+var VERSION = 10;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';
@@ -53,6 +53,7 @@ function doPost(e) {
   }
 
   if (String(body.type || '').indexOf('keihi') === 0) return json_(keihiHandle_(body));
+  if (String(body.type || '').indexOf('holdings') === 0) return json_(holdingsHandle_(body, props));
 
   if (!same_(body.key, WEBAPP_TOKEN)) return json_({ ok: false, error: 'key' });
 
@@ -196,6 +197,14 @@ function json_(obj) {
 }
 
 // エディタでこれを1回実行して、カレンダーとドライブを読む許可を出す
+// 許可の画面がチェック式のとき、足りない項目があれば全部まとめて求める
 function authorize() {
-  Logger.log(JSON.stringify({ events: events_().length, pest: pest_() ? 'ok' : 'none' }));
+  ScriptApp.requireAllScopes(ScriptApp.AuthMode.FULL);
+  Logger.log(JSON.stringify({
+    events: events_().length,
+    pest: pest_() ? 'ok' : 'none',
+    gmail: GmailApp.search('from:feedback@moneyforward.com', 0, 1).length,
+    drive: DriveApp.getRootFolder().getName(),
+    fetch: UrlFetchApp.fetch('https://query1.finance.yahoo.com/v8/finance/chart/7203.T?range=1d', { muteHttpExceptions: true }).getResponseCode()
+  }));
 }
