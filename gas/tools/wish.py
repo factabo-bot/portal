@@ -51,10 +51,18 @@ def main():
         old = cur.get("progress") or {}
         tasks = old.get("tasks", [])
         if a.tasks:
+            # 同じ作業名なら「続き」のリンク（app・open・ref）を引き継ぐ。新しい作業には最新の関係セッションを付ける
+            keep = {t["t"]: t for t in tasks}
+            linked = [s for s in old.get("sessions", []) if s.get("open")]
+            latest = max(linked, key=lambda s: s.get("d", ""), default=None)
             tasks = []
             for part in a.tasks.split("|"):
                 s, _, t = part.partition(":")
-                tasks.append({"t": t.strip(), "s": s.strip()})
+                item = {"t": t.strip(), "s": s.strip()}
+                src = keep.get(item["t"]) or latest
+                if src and src.get("open"):
+                    item.update({k: src[k] for k in ("app", "open", "ref") if k in src})
+                tasks.append(item)
         item = {"id": a.arg, "stage": a.stage or old.get("stage", "未着手"), "line": a.line if a.line is not None else old.get("line", ""),
                 "tasks": tasks, "sessions": old.get("sessions", [])}
         print(post({"type": "wishProgress", "items": [item]}, CFG["pushToken"]))
