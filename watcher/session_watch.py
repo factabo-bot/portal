@@ -209,16 +209,46 @@ def collect():
     return out[:MAX_SESSIONS]
 
 
+def quotas():
+    """2つのアプリ（＝2つのアカウント）の使用量。5時間枠 fh・7日枠 sd（%）。新しく開くセッションの行き先を決めるのに使う"""
+    now = time.time()
+    out = {}
+    # VS Code（CLI のログイン）：AI進捗モニターと同じ公式の利用枠。モニターの1分キャッシュがあれば使う
+    try:
+        sys.path.insert(0, str(pathlib.Path.home() / "projects" / "ai-session-monitor"))
+        import collector  # noqa: E402
+        q = collector.fetch_claude_quota(pathlib.Path.home(), now)
+        if q:
+            out["vscode"] = {"fh": round(q["primary"]["used_percent"]), "sd": round(q["secondary"]["used_percent"]),
+                             "at": int(now), "fhReset": q["primary"].get("resets_at"), "est": False}
+    except Exception as e:  # noqa: BLE001
+        log("quota vscode: " + repr(e)[:120])
+    # デスクトップ：アプリが出来事のたびに書く記録の最後の値（今の値ではない）。5時間たっていれば5時間枠はリセット済みとみなす
+    try:
+        hp = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Claude-Data" / "claude_pzs8sxrjxfjjc" / "plan-usage-history.json"
+        sm = json.loads(hp.read_text(encoding="utf-8"))["samples"]
+        if sm:
+            last = sm[-1]
+            t = last["t"] / 1000 if last["t"] > 1e12 else last["t"]
+            fh = last["u"].get("fh", 0) if now - t < 5 * 3600 else 0
+            out["desktop"] = {"fh": int(fh), "sd": int(last["u"].get("sd", 0)), "at": int(t), "est": True}
+    except Exception as e:  # noqa: BLE001
+        log("quota desktop: " + repr(e)[:120])
+    return out
+
+
 def main():
     cfg = json.loads(CFG.read_text(encoding="utf-8"))
     sessions = collect()
-    digest = hashlib.sha256(json.dumps(sessions, ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    q = quotas()
+    coarse = {k: (v["fh"] // 5, v["sd"] // 5) for k, v in q.items()}   # 5%刻みで変わったら送り直す
+    digest = hashlib.sha256(json.dumps([sessions, coarse], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     prev = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
     # 変化がなくても1時間に1回は送る（ポータル側で「最終更新」が古くならないように）
     if prev.get("digest") == digest and time.time() - prev.get("sent", 0) < 3600 and "--force" not in sys.argv:
         return
     body = json.dumps({"key": cfg["pushToken"], "type": "pushSessions", "host": socket.gethostname()[:30],
-                       "sessions": sessions}, ensure_ascii=False).encode("utf-8")
+                       "sessions": sessions, "quota": q}, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(cfg["url"], data=body, headers={"Content-Type": "text/plain;charset=utf-8"})
     with urllib.request.urlopen(req, timeout=90) as r:
         res = json.loads(r.read().decode("utf-8"))

@@ -145,8 +145,8 @@ function renderRemote(j) {
     });
     $('#events').innerHTML = groups.join('');
   }
-  // セッション
-  if ('sessions' in j) renderSessions(j.sessions);
+  // セッション（と、新しく開く先を決める使用量）
+  if ('sessions' in j) { lastQuota = (j.sessions && j.sessions.quota) || null; renderSessions(j.sessions); }
   // やりたいこと
   if (Array.isArray(j.wishes)) { wishes = j.wishes; renderWishes(); }
   // 家計・株価
@@ -233,12 +233,28 @@ function continueUrl(x, prompt) {
   if (x.app === 'デスクトップ' && RE_LOCAL.test(x.open || '')) return `claude://code/continue?session=${x.open}`;
   return '';
 }
+// 新しく開く先：使用量に余裕がある方（VS Code＝CLIのログイン、デスクトップ＝アプリのログイン）
+let lastQuota = null;
+function chooseApp() {
+  const v = lastQuota && lastQuota.vscode, d = lastQuota && lastQuota.desktop;
+  if (!v && !d) return { app: 'VS Code', why: '使用量が分からないのでVS Code' };
+  if (!d) return { app: 'VS Code', why: 'デスクトップの使用量が分からない' };
+  if (!v) return { app: 'デスクトップ', why: 'VS Codeの使用量が分からない' };
+  const label = (q, n) => `${n} 5時間${q.fh}%・7日${q.sd}%${q.est ? `（${hm(new Date(q.at * 1000))}の記録から推定）` : ''}`;
+  const both = `${label(v, 'VS Code')}／${label(d, 'デスクトップ')}`;
+  if (v.sd >= 95 && d.sd < 95) return { app: 'デスクトップ', why: `VS Codeの7日枠が残り少ない。${both}` };
+  if (d.sd >= 95 && v.sd < 95) return { app: 'VS Code', why: `デスクトップの7日枠が残り少ない。${both}` };
+  if (v.fh < 80 && d.fh < 80) return v.sd <= d.sd ? { app: 'VS Code', why: `7日枠に余裕。${both}` } : { app: 'デスクトップ', why: `7日枠に余裕。${both}` };
+  return v.fh <= d.fh ? { app: 'VS Code', why: `5時間枠に余裕。${both}` } : { app: 'デスクトップ', why: `5時間枠に余裕。${both}` };
+}
 function companionUrl(w, task) {
   const prompt = `【やりたいこと伴走】「${w.text}」（やりたいことID ${w.id}・${md(w.at)}に思った）
 `
     + (task ? `作業「${task}」を進めたい。関係する記憶と記録を確かめて、この作業の次の一歩を短く示してください。`
       : 'これをかなえるまで伴走してください。関係する記憶と記録を確かめて、今どこまで来ているか・かなえるまでの作業の分け方・次の一歩を短く示してください。');
-  return `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(prompt)}`;
+  return chooseApp().app === 'デスクトップ'
+    ? `claude://code/new?q=${encodeURIComponent(prompt)}`
+    : `vscode://anthropic.claude-code/open?prompt=${encodeURIComponent(prompt)}`;
 }
 function wishLink(w) {   // やりたいこと全体：いちばん最近の関係セッションの続き、無ければ新しい伴走
   const ses = ((w.progress && w.progress.sessions) || []).filter((x) => continueUrl(x, '')).sort((a, b) => (a.d < b.d ? 1 : -1));
@@ -286,6 +302,9 @@ function openCompanion(w) {
 function renderWishes() {
   const n = wishes.filter((w) => w.state === 'open').length;
   $('#wish-count').textContent = n ? `${n}件` : '';
+  const ch = chooseApp();
+  const dest = $('#wish-dest');
+  if (dest) { dest.textContent = PHONE ? '' : `新しく開く先：${ch.app}`; dest.title = ch.why; }
   document.querySelectorAll('[data-wt]').forEach((b) => b.classList.toggle('on', b.dataset.wt === wishTab));
   const list = wishes.filter((w) => w.state === wishTab);
   if (!list.length) {

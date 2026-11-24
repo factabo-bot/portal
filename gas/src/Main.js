@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 17;
+var VERSION = 18;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';
@@ -21,7 +21,14 @@ function doPost(e) {
 
   if (body.type === 'pushSessions') {
     if (!same_(body.key, PUSH_TOKEN)) return json_({ ok: false, error: 'key' });
-    var s = JSON.stringify({ at: new Date().toISOString(), host: String(body.host || '').slice(0, 30), sessions: (body.sessions || []).slice(0, 30) });
+    var quota = {};
+    ['vscode', 'desktop'].forEach(function (k) {   // 使用量（%）。新しく開く先を選ぶのに使う
+      var q = (body.quota || {})[k];
+      if (!q) return;
+      quota[k] = { fh: Math.max(0, Math.min(100, Number(q.fh) || 0)), sd: Math.max(0, Math.min(100, Number(q.sd) || 0)),
+        at: Number(q.at) || 0, fhReset: Number(q.fhReset) || 0, est: !!q.est };
+    });
+    var s = JSON.stringify({ at: new Date().toISOString(), host: String(body.host || '').slice(0, 30), sessions: (body.sessions || []).slice(0, 30), quota: quota });
     if (s.length > 8500) return json_({ ok: false, error: 'too_large' });
     props.setProperty(SESSIONS_KEY, s);
     return json_({ ok: true });
