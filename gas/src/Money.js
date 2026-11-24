@@ -84,10 +84,18 @@ function saveMoneySettings_(props, body) {
     props.setProperty(MF_BUDGET_KEY, String(b));
   }
   if (body.stocks !== undefined) {
-    var list = (Array.isArray(body.stocks) ? body.stocks : []).slice(0, 30).map(function (s) {
-      return { code: String(s.code || '').trim().toUpperCase().slice(0, 15), name: String(s.name || '').trim().slice(0, 20) };
-    }).filter(function (s) { return /^[A-Z0-9.^=-]{1,15}$/.test(s.code); });
+    var dropped = [];
+    var list = (Array.isArray(body.stocks) ? body.stocks : []).slice(0, 40).map(function (s) {
+      var raw = String(s.code || '').trim().toUpperCase().replace(/[Ａ-Ｚ０-９．]/g, function (ch) { return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0); });
+      var code = /^\d{3}[0-9A-Z]$/.test(raw) ? raw + '.T' : raw.replace(/\s+/g, '-');   // 7203 → 7203.T、BRK B → BRK-B
+      return { code: code.slice(0, 15), name: String(s.name || '').trim().slice(0, 20), raw: raw };
+    }).filter(function (s) {
+      if (/^[A-Z0-9.^=-]{1,15}$/.test(s.code)) return true;
+      if (s.raw) dropped.push(s.raw);
+      return false;
+    }).map(function (s) { return { code: s.code, name: s.name }; });
     props.setProperty(STOCKS_KEY, JSON.stringify(list));
+    return { ok: true, saved: list.length, dropped: dropped };
   }
   return { ok: true };
 }

@@ -370,14 +370,33 @@ document.addEventListener('click', async (e) => {
 // ---------- 株価 ----------
 let stockList = [];
 let stockEditing = false;
+let lastStocks = null, lastStocksErr = null, lastHoldings = null;
 function renderStocks(st, err) {
   const el = $('#stocks');
+  if (st !== undefined) { lastStocks = st; lastStocksErr = err; }
+  st = lastStocks; err = lastStocksErr;
   if (stockEditing) return renderStockEditor();
-  if (err) { el.innerHTML = '<div class="muted">株価を読めませんでした（許可が要るかもしれません）</div>'; return; }
-  const qs = (st && st.quotes) || [];
-  if (!qs.length) { el.innerHTML = '<div class="muted">銘柄がまだありません。「銘柄」から足してください（例：7203.T）</div>'; return; }
-  let latest = 0;
-  el.innerHTML = qs.map((q) => {
+  // 保有資産がある端末では、持っている株を先に並べる（同じ銘柄は1行に）
+  const held = [];
+  if (lastHoldings) {
+    const seen = new Set();
+    lastHoldings.stocks.forEach((h) => {
+      if (seen.has(h.code)) return; seen.add(h.code);
+      const same = lastHoldings.stocks.filter((x) => x.code === h.code);
+      const value = same.reduce((a, x) => a + x.value, 0), day = same.reduce((a, x) => a + x.day, 0);
+      held.push({ code: h.code, name: h.name, price: h.price, cur: h.cur, pct: value - day ? (day / (value - day)) * 100 : 0 });
+    });
+  }
+  const qs = ((st && st.quotes) || []).filter((q) => !held.some((h) => h.code.replace(/\s+/g, '-') === q.code || h.code + '.T' === q.code));
+  if (!qs.length && !held.length) {
+    el.innerHTML = err ? '<div class="muted">株価を読めませんでした</div>' : '<div class="muted">銘柄がまだありません。「銘柄」から足してください（例：7203、AAPL）</div>';
+    return;
+  }
+  const fmtP = (n, cur) => n.toLocaleString('ja-JP', { maximumFractionDigits: cur === 'JPY' ? 1 : 2 });
+  const heldHtml = held.map((h) => `<div class="qrow"><span class="qn">${esc(h.name)} <span class="meta">${esc(h.code)}・保有</span></span>
+      <span class="qp">${fmtP(h.price, h.cur)}${h.cur === 'USD' ? ' ドル' : ''}</span><span class="qc ${h.pct > 0 ? 'up' : h.pct < 0 ? 'down' : ''}">${h.pct >= 0 ? '+' : ''}${h.pct.toFixed(2)}%</span></div>`).join('');
+  let latest = lastHoldings && lastHoldings.quoteTime ? lastHoldings.quoteTime : 0;
+  el.innerHTML = heldHtml + qs.map((q) => {
     if (q.error || q.price == null) return `<div class="qrow"><span class="qn">${esc(q.name)}</span><span class="muted">取得できず</span></div>`;
     latest = Math.max(latest, q.time || 0);
     const ch = q.prev ? q.price - q.prev : 0, pc = q.prev ? (ch / q.prev) * 100 : 0;
@@ -390,10 +409,10 @@ function renderStocks(st, err) {
 }
 function renderStockEditor() {
   $('#stocks').innerHTML = stockList.map((s, i) => `<div class="edit-row">
-      <input class="sk-code" data-i="${i}" value="${esc(s.code)}" placeholder="7203.T">
+      <input class="sk-code" data-i="${i}" value="${esc(s.code)}" placeholder="7203 や AAPL">
       <input class="sk-name" data-i="${i}" value="${esc(s.name)}" placeholder="名前">
       <span class="ops"><button class="btn small ghost" data-sk="del" data-i="${i}">×</button></span></div>`).join('')
-    + `<div class="muted">日本株はコードの後ろに .T（例 7203.T）、米国株はそのまま（例 AAPL）</div>
+    + `<div class="muted">日本株は4けたのコード（例 7203）、米国株は記号（例 AAPL・BRK B）。持っている株は保有資産から自動で出ます</div>
     <div class="edit-bar"><button class="btn small ghost" data-sk="add">＋ 銘柄</button>
     <button class="btn small ghost" data-sk="cancel">やめる</button><button class="btn small" data-sk="save">保存</button></div>`;
 }
@@ -411,7 +430,12 @@ $('#stocks').addEventListener('click', async (e) => {
   if (a === 'cancel') { stockEditing = false; loadRemote(); }
   if (a === 'save') {
     const list = stockList.filter((s) => s.code);
-    try { const j = await post({ type: 'saveMoney', stocks: list }); if (!j.ok) throw 0; stockEditing = false; setStatus('銘柄を保存しました'); loadRemote(); }
+    try {
+      const j = await post({ type: 'saveMoney', stocks: list }); if (!j.ok) throw 0;
+      stockEditing = false;
+      setStatus(`銘柄を${j.saved}件保存しました${j.dropped && j.dropped.length ? `。読めなかったもの：${j.dropped.join('、')}` : ''}`);
+      loadRemote();
+    }
     catch { setStatus('銘柄を保存できませんでした'); }
   }
 });
@@ -439,6 +463,8 @@ async function loadHoldings() {
   }
 }
 function renderHoldings(h) {
+  lastHoldings = h || null;
+  renderStocks();
   if (!h) { $('#hold').innerHTML = '<div class="muted">まだありません。「貼り付けて更新」から保有一覧を貼ってください</div>'; return; }
   $('#hold-at').textContent = `株は${h.quoteTime ? hm(new Date(h.quoteTime * 1000)) : '—'}時点・投信は${md(h.at)}時点`;
   const total = h.stockTotal + h.fundTotal, pnl = h.stockPnl + h.fundPnl;
