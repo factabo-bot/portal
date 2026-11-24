@@ -95,6 +95,7 @@ async function loadRemote() {
   }
   setStatus('予定を読み込み中…');
   try {
+    sesAt = Date.now();
     const j = await post({ type: 'get' });
     if (!j.ok) throw new Error(j.error || 'ng');
     save(LS.remote, j);
@@ -195,27 +196,63 @@ function renderSessions(data) {
   const el = $('#sessions');
   if (!data) { el.innerHTML = '<div class="muted">まだ届いていません（PCの見回り役が未起動）</div>'; return; }
   const list = data.sessions || [];
+  const waiting = (x) => (x.state === 'ask' || x.state === 'stuck') && !x.hide;
   const row = (s) => {
     const { app: appUrl, web } = sessionLinks(s);
     const main = PHONE ? (web || appUrl) : (appUrl || web);
     const sub = !PHONE && appUrl && web ? `<a class="slink" href="${esc(web)}" target="_blank" rel="noopener noreferrer">ブラウザで</a>` : '';
-    const body = `<div class="sline"><span class="badge">${ST[s.state] || ''}</span><span class="stitle">${esc(s.title)}</span></div>
+    const label = s.hide ? '済み' : s.state === 'ask' && s.seen ? '見た・返事まだ' : ST[s.state] || '';
+    const body = `<div class="sline"><span class="badge">${label}</span><span class="stitle">${esc(s.title)}</span></div>
       ${s.q ? `<div class="sq">${esc(s.q)}</div>` : ''}`;
-    return `<div class="srow st-${esc(s.state)}">
+    const btn = waiting(s) ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" title="もう返事がいらない会話を下げる（新しいやり取りがあればまた出ます）">済みにする</button>`
+      : s.hide ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" data-undo="1">戻す</button>` : '';
+    return `<div class="srow st-${s.hide ? 'done' : s.state === 'ask' && s.seen ? 'seen' : esc(s.state)}">
       ${main ? `<a class="sbody" href="${esc(main)}"${main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
-      <div class="meta">${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub}</div></div>`;
+      <div class="meta">${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub}${btn}</div></div>`;
   };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
   const sorted = [...list].sort((a, b) => b.at - a.at);
-  const urgent = (x) => x.state !== 'done';   // 質問あり・止まっている・作業中は全部出す
+  const urgent = (x) => x.state === 'work' || waiting(x);   // 質問あり・止まっている・作業中は全部出す
   const head = [], rest = [];
-  for (const x of sorted) (urgent(x) || head.filter((y) => !urgent(y)).length < 5 ? head : rest).push(x);
+  for (const x of sorted) (urgent(x) || (!x.hide && head.filter((y) => !urgent(y)).length < 5) ? head : rest).push(x);
   const at = new Date(data.at);
   const stale = Date.now() - at.getTime() > 90 * 60000;
   el.innerHTML = (head.length ? head.map(row).join('') : '<div class="muted">48時間以内のセッションはありません</div>')
-    + (rest.length ? `<details class="sdone"><summary>ほか ${rest.length}件（返事済み・48時間以内）</summary>${rest.map(row).join('')}</details>` : '')
+    + (rest.length ? `<details class="sdone"><summary>ほか ${rest.length}件（返事済み・済み、48時間以内）</summary>${rest.map(row).join('')}</details>` : '')
     + `<div class="supd${stale ? ' stale' : ''}">PCから ${at.getMonth() + 1}/${at.getDate()} ${hm(at)} に更新${stale ? '（PCが止まっているかもしれません）' : ''}</div>`;
 }
+
+// セッションだけ読み直す（開いている間は1分おき）
+let sesAt = 0;
+function putSessions(data) {
+  if (!data) return;
+  const cached = load(LS.remote, null);
+  if (cached) save(LS.remote, { ...cached, sessions: data });
+  lastQuota = data.quota || null;
+  const open = !!$('#sessions .sdone')?.open;
+  renderSessions(data);
+  if (open) { const d = $('#sessions .sdone'); if (d) d.open = true; }
+}
+async function loadSessions() {
+  if (!cfg.url || document.visibilityState !== 'visible' || Date.now() - sesAt < 20000) return;
+  sesAt = Date.now();
+  try { const j = await post({ type: 'sessions' }); if (j.ok) putSessions(j.sessions); } catch { /* 次の回に */ }
+}
+setInterval(loadSessions, 60000);
+window.addEventListener('focus', loadSessions);
+$('#sessions').addEventListener('click', async (ev) => {
+  const b = ev.target.closest('[data-shide]');
+  if (!b) return;
+  const s = ((load(LS.remote, {}).sessions || {}).sessions || []).find((x) => x.id === b.dataset.shide);
+  if (!s) return;
+  b.disabled = true;
+  try {
+    const j = await post({ type: 'sessionHide', id: s.id, at: s.at, undo: !!b.dataset.undo });
+    if (!j.ok) throw new Error(j.error || 'ng');
+    sesAt = Date.now();
+    putSessions(j.sessions);
+  } catch { b.disabled = false; setStatus('済みの印を保存できませんでした'); }
+});
 
 // ---------- やりたいこと ----------
 let wishes = [];

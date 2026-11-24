@@ -176,6 +176,7 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .stitle { min-width: 0; overflow-wrap: anywhere; }
 .badge { flex: none; font-size: .75rem; padding: 1px 7px; border-radius: 99px; background: var(--chip); color: var(--muted); }
 .st-ask .badge { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.shide { margin-left: 8px; padding: 0 8px; }
 .st-stuck .badge { background: #c07a1f; color: #fff; }
 .sq { font-size: .85rem; margin-top: 2px; }
 .srow .meta, .supd { color: var(--muted); font-size: .78rem; }

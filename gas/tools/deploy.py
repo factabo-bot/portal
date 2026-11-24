@@ -6,6 +6,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import time
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -52,17 +53,21 @@ def main():
     LOCAL.write_text(json.dumps(cfg, indent=1), encoding="utf-8")
     # 配備直後に古い版が返ることがある（11/24に4回）。版を確かめ、古ければ配備をやり直す
     want = int(re.search(r"var VERSION = (\d+);", (ROOT / "src" / "Main.js").read_text(encoding="utf-8")).group(1))
-    for i in range(3):
-        with urllib.request.urlopen(cfg["url"], timeout=60) as r:
-            body = r.read().decode("utf-8")[:200]
-        print("ping:", body)
-        try:
-            if json.loads(body).get("version") == want:
-                return
-        except ValueError:
-            pass
-        print(f"版が {want} になっていない。配備をやり直す（{i + 1}回目）")
-        print(clasp("update-deployment", cfg["deploymentId"], "--description", "auto").strip())
+    # 反映は数十秒遅れる（11/24、4回連続で古い版→1分後には新しい版）。まず待ち、それでも古ければ1回だけやり直す
+    for i in range(2):
+        for _ in range(8):
+            with urllib.request.urlopen(cfg["url"], timeout=60) as r:
+                body = r.read().decode("utf-8")[:200]
+            try:
+                if json.loads(body).get("version") == want:
+                    print("ping:", body)
+                    return
+            except ValueError:
+                pass
+            time.sleep(10)
+        if i == 0:
+            print(f"版が {want} になっていない。配備をやり直す")
+            print(clasp("update-deployment", cfg["deploymentId"], "--description", "auto").strip())
     sys.exit("配備しても版が上がらない。clasp pull で中身を確かめる")
 
 

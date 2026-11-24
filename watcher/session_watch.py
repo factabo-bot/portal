@@ -5,9 +5,12 @@
 - 送るもの（最小限）：セッション名・状態・最終更新・アプリ・フォルダ名・最後の問いかけの冒頭（伏せ字処理済み）
   会話の本文や作業場所のフルパスは送らない
 - 書き込み用の合言葉は ../gas/.local.json の pushToken（git 管理外）
+- 時刻は「最後の会話の時刻」を使う。ファイルの更新時刻は、開いただけ・アプリの起動でも新しくなるので使わない
+- 質問のあとに本人がその会話を開いていれば seen を付ける（デスクトップのみ。VS Code は開いた時刻の記録がない）
 - 前回と同じ内容なら送らない（state.json に要約のハッシュだけ残す）
 タスクスケジューラから pythonw で動かす前提。pythonw では sys.stdout が None なので print しない。
 """
+import datetime
 import hashlib
 import json
 import os
@@ -22,6 +25,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 CFG = HERE.parent / "gas" / ".local.json"
 STATE = HERE / "state.json"
 LOG = HERE / "run.log"
+CACHE = HERE / "parse_cache.json"    # 読み取り済みの記録（PCの中だけ・git 管理外）
+LIVE = pathlib.Path.home() / ".claude" / "sessions"   # 動いている claude の一覧（pid ごと）
 PROJECTS = pathlib.Path.home() / ".claude" / "projects"
 DESKTOP_SESSIONS = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Claude-Data" / "claude_pzs8sxrjxfjjc" / "claude-code-sessions"
 ACCOUNTS = HERE / "accounts.json"   # アカウントのIDと表示名（git 管理外）
@@ -74,6 +79,41 @@ def is_human_prompt(d):
     return True
 
 
+def ts(d):
+    try:
+        return datetime.datetime.fromisoformat(d["timestamp"].replace("Z", "+00:00")).timestamp()
+    except (KeyError, ValueError, AttributeError):
+        return 0
+
+
+def facts(path, cache):
+    """記録1つから要る物だけ取り出す。前回から変わっていない記録は読み直さない"""
+    st = path.stat()
+    key = f"{st.st_mtime_ns}:{st.st_size}"
+    hit = cache.get(path.stem)
+    if hit and hit.get("key") == key:
+        return hit
+    title, entry, cwd, last, last_text, owner, bridge = read_session(path)
+    msg = (last or {}).get("message") or {}
+    return {"key": key, "title": title, "entry": entry, "cwd": cwd, "owner": owner, "bridge": bridge,
+            "type": (last or {}).get("type", ""), "at": ts(last) if last else 0, "tools": tool_names(msg),
+            "stop": msg.get("stop_reason") or "", "interrupted": text_of(msg).startswith("[Request interrupted"),
+            "tail": last_text[-300:], "q": snippet(last_text)}
+
+
+def live_status():
+    """動いている claude の状態。記録のID → idle / busy など"""
+    out = {}
+    for p in LIVE.glob("*.json"):
+        try:
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if d.get("sessionId"):
+            out[d["sessionId"]] = d.get("status") or ""
+    return out
+
+
 def read_session(path):
     title = ""
     owner = ""
@@ -114,7 +154,7 @@ def read_session(path):
 
 
 def desktop_index():
-    """デスクトップアプリの管理ファイルから、記録のID → (アプリ内のID, アーカイブ済みか, アカウント)"""
+    """デスクトップアプリの管理ファイルから、記録のID → (アプリ内のID, アーカイブ済みか, アカウント, 最後に開いた時刻)"""
     idx = {}
     if not DESKTOP_SESSIONS.exists():
         return idx
@@ -128,7 +168,8 @@ def desktop_index():
             continue
         cli = d.get("cliSessionId")
         if cli:
-            idx[cli] = (d.get("sessionId", ""), bool(d.get("isArchived")), p.parent.parent.name)
+            idx[cli] = (d.get("sessionId", ""), bool(d.get("isArchived")), p.parent.parent.name,
+                        (d.get("lastFocusedAt") or 0) / 1000)
     return idx
 
 
@@ -141,21 +182,22 @@ def account_label(uuid, accounts):
     return accounts[uuid]
 
 
-def judge(last, last_text, age_s):
+def judge(f, age_s, live):
     """状態：ask（質問あり）/ done（返事待ち）/ work（作業中）/ stuck（止まっている）"""
-    if last is None:
+    if not f["type"]:
         return None
-    msg = last.get("message") or {}
-    if last["type"] == "assistant":
-        names = tool_names(msg)
-        if any(n in ("AskUserQuestion", "ExitPlanMode") for n in names):
+    if f["type"] == "assistant":
+        if any(n in ("AskUserQuestion", "ExitPlanMode") for n in f["tools"]):
             return "ask"
-        if msg.get("stop_reason") == "tool_use" or names:
-            return "work" if age_s < WORKING_GRACE_S else "stuck"
-        tail = last_text[-300:]
-        return "ask" if re.search(r"[?？]", tail) else "done"
-    # 最後が user（人の入力 or ツールの結果）＝ Claude の番
-    return "work" if age_s < WORKING_GRACE_S * 2 else "stuck"
+        if not (f["stop"] == "tool_use" or f["tools"]):
+            return "ask" if re.search(r"[?？]", f["tail"]) else "done"
+        grace = WORKING_GRACE_S
+    else:                       # 最後が user（人の入力 or ツールの結果）＝ Claude の番
+        grace = WORKING_GRACE_S * 2
+    # 途中で終わっている。本人が止めた・もう待機に戻っているなら、誰も待っていない
+    if f["interrupted"] or (live == "idle" and age_s > 30):
+        return "done"
+    return "work" if age_s < grace else "stuck"
 
 
 def snippet(last_text):
@@ -173,38 +215,49 @@ def collect():
     now = time.time()
     out = []
     didx = desktop_index()
+    live = live_status()
     accounts = json.loads(ACCOUNTS.read_text(encoding="utf-8")) if ACCOUNTS.exists() else {}
+    try:
+        cache = json.loads(CACHE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    fresh = {}
     for p in PROJECTS.glob("*/*.jsonl"):
         try:
-            mt = p.stat().st_mtime
+            if now - p.stat().st_mtime > LOOKBACK_H * 3600:   # 更新がなければ会話もない（ふるい分けだけに使う）
+                continue
+            f = fresh[p.stem] = facts(p, cache)
         except OSError:
             continue
-        if now - mt > LOOKBACK_H * 3600:
+        if now - f["at"] > LOOKBACK_H * 3600:
             continue
-        title, entry, cwd, last, last_text, owner, bridge = read_session(p)
-        if entry not in APPS:          # sdk-cli（自動実行など）は出さない
+        if f["entry"] not in APPS:          # sdk-cli（自動実行など）は出さない
             continue
-        if cwd and pathlib.PurePath(cwd).name == "_llm":   # やりたいことの見立て役（claude -p）
+        if f["cwd"] and pathlib.PurePath(f["cwd"]).name == "_llm":   # やりたいことの見立て役（claude -p）
             continue
         dinfo = didx.get(p.stem)
         if dinfo and dinfo[1]:         # デスクトップでアーカイブ済み
             continue
-        st = judge(last, last_text, now - mt)
+        st = judge(f, now - f["at"], live.get(p.stem, ""))
         if not st:
             continue
-        out.append({
+        s = {
             "id": p.stem[:8],
-            "title": mask(title or "（名前なし）")[:60],
-            "app": APPS[entry],
-            "folder": mask(pathlib.PurePath(cwd).name)[:30] if cwd else "",
+            "title": mask(f["title"] or "（名前なし）")[:60],
+            "app": APPS[f["entry"]],
+            "folder": mask(pathlib.PurePath(f["cwd"]).name)[:30] if f["cwd"] else "",
             "state": st,
-            "at": int(mt),
-            "q": snippet(last_text) if st == "ask" else "",
-            "acct": account_label(owner or (dinfo[2] if dinfo else ""), accounts),
+            "at": int(f["at"]),
+            "q": f["q"] if st == "ask" else "",
+            "acct": account_label(f["owner"] or (dinfo[2] if dinfo else ""), accounts),
             # 飛び先：VS Code は記録のID、デスクトップはアプリ内のID、ブラウザはリモート接続のID
-            "open": (dinfo[0] if dinfo else "") if entry == "claude-desktop" else p.stem,
-            "rc": bridge.split("_", 1)[1] if "_" in bridge else "",
-        })
+            "open": (dinfo[0] if dinfo else "") if f["entry"] == "claude-desktop" else p.stem,
+            "rc": f["bridge"].split("_", 1)[1] if "_" in f["bridge"] else "",
+        }
+        if st == "ask" and dinfo and dinfo[3] > f["at"] + 5:   # 質問のあとに本人が開いた（返事はまだ）
+            s["seen"] = 1
+        out.append(s)
+    CACHE.write_text(json.dumps(fresh, ensure_ascii=False), encoding="utf-8")
     out.sort(key=lambda s: -s["at"])
     return out[:MAX_SESSIONS]
 
@@ -268,7 +321,8 @@ if __name__ == "__main__":
     except Exception as e:  # noqa: BLE001
         log("error: " + repr(e)[:300])
     # ひと区切りついたセッションを要約する（やりたいことの見立ての材料。1回に最大3件）
-    if "--dry" not in sys.argv:
+    # 見回りは1分おき、要約は5分に1回
+    if "--dry" not in sys.argv and time.localtime().tm_min % 5 == 0:
         try:
             import summarize
             summarize.run(3, log=log)

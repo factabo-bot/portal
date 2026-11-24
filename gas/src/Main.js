@@ -5,10 +5,11 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 18;
+var VERSION = 19;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';
+var SESSION_HIDE_KEY = 'portal_session_hide';   // 「済みにする」を押した会話 {id: その時点の最後の会話の時刻}
 
 function doGet(e) {
   return json_({ ok: true, version: VERSION });
@@ -80,11 +81,25 @@ function doPost(e) {
     try { out.pest = pest_(); } catch (err) { out.pestError = String(err); }
     var links = props.getProperty(LINKS_KEY);
     out.links = links ? JSON.parse(links) : null;
-    var ses = props.getProperty(SESSIONS_KEY);
-    out.sessions = ses ? JSON.parse(ses) : null;
+    out.sessions = sessions_(props);
     out.wishes = wishes_(props);
     try { out.stocks = stocks_(); } catch (err) { out.stocksError = String(err).slice(0, 120); }
     return json_(out);
+  }
+  // セッションだけ（開いている間、1分おきに呼ばれる）
+  if (body.type === 'sessions') return json_({ ok: true, sessions: sessions_(props) });
+  // この会話は済み。新しいやり取りがあれば（at が進めば）また出る
+  if (body.type === 'sessionHide') {
+    var sid = String(body.id || ''), sat = Math.floor(Number(body.at) || 0);
+    if (!/^[0-9a-f]{8}$/.test(sid)) return json_({ ok: false, error: 'id' });
+    var lock = LockService.getScriptLock();
+    lock.waitLock(10000);
+    try {
+      var hide = hidden_(props);
+      if (body.undo) delete hide[sid]; else hide[sid] = sat;
+      props.setProperty(SESSION_HIDE_KEY, JSON.stringify(hide));
+    } finally { lock.releaseLock(); }
+    return json_({ ok: true, sessions: sessions_(props) });
   }
   // やりたいこと：1件ずつ別のキー（wish_<id>）に置く。1つの値の上限（9KB）に全体が縛られないように
   if (body.type === 'wishAdd') {
@@ -126,6 +141,21 @@ function doPost(e) {
     return json_({ ok: true, savedAt: body.links.savedAt });
   }
   return json_({ ok: false, error: 'type' });
+}
+
+function hidden_(props) {
+  var h = JSON.parse(props.getProperty(SESSION_HIDE_KEY) || '{}');
+  var old = Date.now() / 1000 - 72 * 3600;   // 一覧は48時間分なので、古い印は捨てる
+  Object.keys(h).forEach(function (k) { if (h[k] < old) delete h[k]; });
+  return h;
+}
+
+function sessions_(props) {
+  var ses = props.getProperty(SESSIONS_KEY);
+  if (!ses) return null;
+  var data = JSON.parse(ses), h = hidden_(props);
+  data.sessions.forEach(function (s) { if (h[s.id] >= s.at) s.hide = 1; });
+  return data;
 }
 
 function wishes_(props) {
