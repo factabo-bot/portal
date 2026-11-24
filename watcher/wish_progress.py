@@ -233,7 +233,8 @@ def main():
     r = subprocess.run([claude, "-p", "--model", "sonnet", "--no-session-persistence",
                         "--tools", "Read,Grep,Glob", "--allowedTools", "Read,Grep,Glob",
                         "--add-dir", str(MEMORY_DIR), "--add-dir", str(SUMMARY_DIR)],
-                       input=prompt, cwd=WORKDIR, capture_output=True, text=True, encoding="utf-8", timeout=1200)
+                       input=prompt, cwd=WORKDIR, capture_output=True, text=True, encoding="utf-8", timeout=1200,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))  # 黒い画面を出さない
     out = r.stdout or ""
     m = re.search(r"\[\s*\{.*\}\s*\]", out, re.S)
     if r.returncode != 0 or not m:

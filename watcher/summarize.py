@@ -178,7 +178,8 @@ def summarize_one(p, prev):
                                part=part, body=body)
         WORKDIR.mkdir(exist_ok=True)
         r = subprocess.run([CLAUDE, "-p", "--model", MODEL, "--no-session-persistence", "--tools", ""],
-                           input=prompt, cwd=WORKDIR, capture_output=True, text=True, encoding="utf-8", timeout=300)
+                           input=prompt, cwd=WORKDIR, capture_output=True, text=True, encoding="utf-8", timeout=300,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))  # 黒い画面を出さない
         m = re.search(r"\{.*\}", r.stdout or "", re.S)
         if r.returncode != 0 or not m:
             raise RuntimeError(f"要約できない {p.stem[:8]} rc={r.returncode} {(r.stdout or '')[:120]} {(r.stderr or '')[:120]}")
