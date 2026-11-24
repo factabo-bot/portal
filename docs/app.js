@@ -173,14 +173,33 @@ function ago(sec) {
   const h = Math.round(m / 60);
   return h < 24 ? `${h}時間前` : `${Math.round(h / 24)}日前`;
 }
+// 飛び先。IDは形を確かめてから使う（窓口から来た値をそのままURLにしない）
+const PHONE = matchMedia('(pointer: coarse)').matches;
+const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const RE_LOCAL = /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const RE_RC = /^[A-Za-z0-9]{10,40}$/;
+function sessionLinks(s) {
+  let app = '';
+  if (s.app === 'VS Code' && RE_UUID.test(s.open || '')) app = `vscode://anthropic.claude-code/open?session=${s.open}`;
+  if (s.app === 'デスクトップ' && RE_LOCAL.test(s.open || '')) app = `claude://code/continue?session=${s.open}`;
+  const web = RE_RC.test(s.rc || '') ? `https://claude.ai/code/session_${s.rc}` : '';
+  return { app, web };
+}
+
 function renderSessions(data) {
   const el = $('#sessions');
   if (!data) { el.innerHTML = '<div class="muted">まだ届いていません（PCの見回り役が未起動）</div>'; return; }
   const list = data.sessions || [];
-  const row = (s) => `<div class="srow st-${esc(s.state)}">
-      <div class="sline"><span class="badge">${ST[s.state] || ''}</span><span class="stitle">${esc(s.title)}</span></div>
-      ${s.q ? `<div class="sq">${esc(s.q)}</div>` : ''}
-      <div class="meta">${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)}</div></div>`;
+  const row = (s) => {
+    const { app: appUrl, web } = sessionLinks(s);
+    const main = PHONE ? (web || appUrl) : (appUrl || web);
+    const sub = !PHONE && appUrl && web ? `<a class="slink" href="${esc(web)}" target="_blank" rel="noopener noreferrer">ブラウザで</a>` : '';
+    const body = `<div class="sline"><span class="badge">${ST[s.state] || ''}</span><span class="stitle">${esc(s.title)}</span></div>
+      ${s.q ? `<div class="sq">${esc(s.q)}</div>` : ''}`;
+    return `<div class="srow st-${esc(s.state)}">
+      ${main ? `<a class="sbody" href="${esc(main)}"${main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
+      <div class="meta">${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub}</div></div>`;
+  };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
   const sorted = [...list].sort((a, b) => b.at - a.at);
   const head = sorted.slice(0, 10), rest = sorted.slice(10);

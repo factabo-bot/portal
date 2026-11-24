@@ -157,3 +157,9 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .sdone summary { cursor: pointer; font-size: .85rem; color: var(--muted); }
 .qr { margin-top: 8px; text-align: center; }
 .qr svg { width: 220px; max-width: 100%; height: auto; background: #fff; }
+
+.sbody { display: block; text-decoration: none; color: inherit; border-radius: 6px; }
+.sbody:hover .stitle { text-decoration: underline; }
+.slink { margin-left: 6px; color: var(--muted); }
+.h2r { margin-left: auto; font-weight: 400; text-decoration: none; }
+.card h2:has(.h2r) { display: flex; align-items: center; gap: 6px; }

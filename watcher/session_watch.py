@@ -23,9 +23,11 @@ CFG = HERE.parent / "gas" / ".local.json"
 STATE = HERE / "state.json"
 LOG = HERE / "run.log"
 PROJECTS = pathlib.Path.home() / ".claude" / "projects"
+DESKTOP_SESSIONS = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Claude-Data" / "claude_pzs8sxrjxfjjc" / "claude-code-sessions"
+ACCOUNTS = HERE / "accounts.json"   # アカウントのIDと表示名（git 管理外）
 
 LOOKBACK_H = 48          # これより古いセッションは出さない
-MAX_SESSIONS = 25
+MAX_SESSIONS = 20
 WORKING_GRACE_S = 180    # ツール実行中のまま、これ以上動きがなければ「止まっている（許可待ちかも）」
 SNIPPET_LEN = 40
 APPS = {"claude-vscode": "VS Code", "claude-desktop": "デスクトップ"}
@@ -74,6 +76,8 @@ def is_human_prompt(d):
 
 def read_session(path):
     title = ""
+    owner = ""
+    bridge = ""
     entry = ""
     cwd = ""
     last = None          # 最後の user / assistant（サブエージェントは除く）
@@ -89,6 +93,11 @@ def read_session(path):
                 title = d.get("customTitle") or title
             elif t == "ai-title" and not title.startswith("\0"):
                 title = d.get("aiTitle") or title
+            if t == "bridge-session":
+                bridge = d.get("bridgeSessionId") or bridge
+                owner = d.get("ownerAccountUuid") or owner
+            elif t == "session-owner":
+                owner = d.get("accountUuid") or owner
             if d.get("entrypoint"):
                 entry = d["entrypoint"]
             if d.get("cwd"):
@@ -101,7 +110,35 @@ def read_session(path):
                     tx = text_of(d.get("message")).strip()
                     if tx:
                         last_text = tx
-    return title, entry, cwd, last, last_text
+    return title, entry, cwd, last, last_text, owner, bridge
+
+
+def desktop_index():
+    """デスクトップアプリの管理ファイルから、記録のID → (アプリ内のID, アーカイブ済みか, アカウント)"""
+    idx = {}
+    if not DESKTOP_SESSIONS.exists():
+        return idx
+    now = time.time()
+    for p in DESKTOP_SESSIONS.glob("*/*/local_*.json"):
+        try:
+            if now - p.stat().st_mtime > (LOOKBACK_H + 24) * 3600:
+                continue
+            d = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        cli = d.get("cliSessionId")
+        if cli:
+            idx[cli] = (d.get("sessionId", ""), bool(d.get("isArchived")), p.parent.parent.name)
+    return idx
+
+
+def account_label(uuid, accounts):
+    if not uuid:
+        return ""
+    if uuid not in accounts:
+        accounts[uuid] = "アカウント" + "ABCDEFGH"[len(accounts) % 8]
+        ACCOUNTS.write_text(json.dumps(accounts, ensure_ascii=False, indent=1), encoding="utf-8")
+    return accounts[uuid]
 
 
 def judge(last, last_text, age_s):
@@ -135,6 +172,8 @@ def snippet(last_text):
 def collect():
     now = time.time()
     out = []
+    didx = desktop_index()
+    accounts = json.loads(ACCOUNTS.read_text(encoding="utf-8")) if ACCOUNTS.exists() else {}
     for p in PROJECTS.glob("*/*.jsonl"):
         try:
             mt = p.stat().st_mtime
@@ -142,8 +181,11 @@ def collect():
             continue
         if now - mt > LOOKBACK_H * 3600:
             continue
-        title, entry, cwd, last, last_text = read_session(p)
+        title, entry, cwd, last, last_text, owner, bridge = read_session(p)
         if entry not in APPS:          # sdk-cli（自動実行など）は出さない
+            continue
+        dinfo = didx.get(p.stem)
+        if dinfo and dinfo[1]:         # デスクトップでアーカイブ済み
             continue
         st = judge(last, last_text, now - mt)
         if not st:
@@ -156,6 +198,10 @@ def collect():
             "state": st,
             "at": int(mt),
             "q": snippet(last_text) if st == "ask" else "",
+            "acct": account_label(owner or (dinfo[2] if dinfo else ""), accounts),
+            # 飛び先：VS Code は記録のID、デスクトップはアプリ内のID、ブラウザはリモート接続のID
+            "open": (dinfo[0] if dinfo else "") if entry == "claude-desktop" else p.stem,
+            "rc": bridge.split("_", 1)[1] if "_" in bridge else "",
         })
     out.sort(key=lambda s: -s["at"])
     return out[:MAX_SESSIONS]

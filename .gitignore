@@ -4,3 +4,4 @@ gas/src/Secret.js
 watcher/state.json
 watcher/run.log
 watcher/__pycache__/
+watcher/accounts.json
