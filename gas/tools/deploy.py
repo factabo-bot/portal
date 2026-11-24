@@ -26,15 +26,18 @@ def main():
     cfg = json.loads(LOCAL.read_text(encoding="utf-8")) if LOCAL.exists() else {}
     if not cfg.get("token"):
         cfg["token"] = (ROOT / ".token").read_text(encoding="utf-8").strip()
+    import secrets
     if not cfg.get("pushToken"):
-        import secrets
         cfg["pushToken"] = secrets.token_urlsafe(32)
+    if not cfg.get("keihiToken"):
+        cfg["keihiToken"] = secrets.token_urlsafe(32)
     if not (ROOT / ".clasp.json").exists():
         print(clasp("create", "--type", "standalone", "--title", "自分用ポータル窓口", "--rootDir", "src").strip())
     (ROOT / "src" / "Secret.js").write_text(
         "// ポータルの合言葉。tools/deploy.py が .local.json から書き出す\n"
         f"var WEBAPP_TOKEN = '{cfg['token']}';\n"
-        f"var PUSH_TOKEN = '{cfg['pushToken']}';\n", encoding="utf-8")
+        f"var PUSH_TOKEN = '{cfg['pushToken']}';\n"
+        f"var KEIHI_TOKEN = '{cfg['keihiToken']}';\n", encoding="utf-8")
     print(clasp("push", "--force").strip().splitlines()[-1])
     if cfg.get("deploymentId"):
         print(clasp("update-deployment", cfg["deploymentId"], "--description", "auto").strip())

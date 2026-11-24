@@ -40,8 +40,8 @@ let editing = null; // 編集中の下書き
 (function readSetupHash() {
   const m = location.hash.match(/^#setup=(.+)$/);
   if (!m) return;
-  const [url, key] = decodeURIComponent(m[1]).split('|');
-  if (url && key) { cfg = { url, key }; save(LS.cfg, cfg); }
+  const [url, key, keihi] = decodeURIComponent(m[1]).split('|');
+  if (url && key) { cfg = { url, key, keihi: keihi || load(LS.cfg, {}).keihi || '' }; save(LS.cfg, cfg); }
   history.replaceState(null, '', location.pathname);
 })();
 
@@ -110,11 +110,11 @@ async function loadRemote() {
 }
 
 // 合言葉はURLに載せず、本文で送る（text/plain なので事前確認の通信が起きない）
-async function post(body) {
+async function post(body, key) {
   const r = await fetch(cfg.url, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ ...body, key: cfg.key }),
+    body: JSON.stringify({ ...body, key: key || cfg.key }),
     referrerPolicy: 'no-referrer',
   });
   return r.json();
@@ -148,6 +148,9 @@ function renderRemote(j) {
   if ('sessions' in j) renderSessions(j.sessions);
   // やりたいこと
   if (Array.isArray(j.wishes)) { wishes = j.wishes; renderWishes(); }
+  // 家計・株価
+  if (j.mf || j.mfError) renderMf(j.mf, j.mfError);
+  if (j.stocks || j.stocksError) { stockList = (j.stocks && j.stocks.list) || stockList; renderStocks(j.stocks, j.stocksError); }
   // 予察
   if (j.pestError) $('#pest').innerHTML = `<div class="muted">予察ログを読めませんでした：${esc(j.pestError)}</div>`;
   else if (j.pest === null) $('#pest').innerHTML = '<div class="muted">予察ログが見つかりません</div>';
@@ -315,6 +318,126 @@ $('#wishes').addEventListener('click', async (e) => {
   renderWishes();
 });
 
+// ---------- 家計（マネーフォワードの週メールから） ----------
+const yen = (n) => `${Math.round(n).toLocaleString('ja-JP')}円`;
+function renderMf(mf, err) {
+  const el = $('#mf');
+  if (err) { el.innerHTML = `<div class="muted">読めませんでした（Gmailの許可が要るかもしれません）</div>`; return; }
+  const now = new Date();
+  const dim = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const pace = now.getDate() / dim;                 // 月のどこまで来たか
+  const b = mf.budget || 0, e = mf.estimate || 0;
+  const pct = b ? Math.min(100, (e / b) * 100) : 0;
+  const over = b && e > b * pace;
+  const bar = b ? `<div class="mbar"><div class="mfill${over ? ' over' : ''}" style="width:${pct.toFixed(1)}%"></div><div class="mpace" style="left:${(pace * 100).toFixed(1)}%" title="今日の位置"></div></div>` : '';
+  el.innerHTML = `<div class="mrow"><span class="mbig">${yen(e)}</span>${b ? `<span class="muted">／ 予算 ${yen(b)}（${Math.round((e / b) * 100)}%）</span>` : ''}</div>
+    ${bar}
+    <div class="meta">${mf.through ? `${md(mf.through)}までの週メール ${mf.weeks.length}通分` : '今月の週メールはまだ届いていません'}。${b ? (over ? '月の進み具合より使っています' : '月の進み具合の内です') : ''}</div>
+    <div class="mbud"><button type="button" class="btn small ghost" id="mf-budget">${b ? '予算を変える' : '予算を入れる'}</button>
+    <span id="mf-budget-edit" hidden><input id="mf-budget-in" inputmode="numeric" value="${b || ''}" placeholder="例 250000"> <button type="button" class="btn small" id="mf-budget-save">保存</button></span></div>`;
+}
+document.addEventListener('click', async (e) => {
+  if (e.target.id === 'mf-budget') { $('#mf-budget-edit').hidden = false; $('#mf-budget-in').focus(); }
+  if (e.target.id === 'mf-budget-save') {
+    const v = Number(String($('#mf-budget-in').value).replace(/[^\d]/g, ''));
+    try { const j = await post({ type: 'saveMoney', budget: v }); if (!j.ok) throw 0; setStatus('予算を保存しました'); loadRemote(); }
+    catch { setStatus('予算を保存できませんでした'); }
+  }
+});
+
+// ---------- 株価 ----------
+let stockList = [];
+let stockEditing = false;
+function renderStocks(st, err) {
+  const el = $('#stocks');
+  if (stockEditing) return renderStockEditor();
+  if (err) { el.innerHTML = '<div class="muted">株価を読めませんでした（許可が要るかもしれません）</div>'; return; }
+  const qs = (st && st.quotes) || [];
+  if (!qs.length) { el.innerHTML = '<div class="muted">銘柄がまだありません。「銘柄」から足してください（例：7203.T）</div>'; return; }
+  let latest = 0;
+  el.innerHTML = qs.map((q) => {
+    if (q.error || q.price == null) return `<div class="qrow"><span class="qn">${esc(q.name)}</span><span class="muted">取得できず</span></div>`;
+    latest = Math.max(latest, q.time || 0);
+    const ch = q.prev ? q.price - q.prev : 0, pc = q.prev ? (ch / q.prev) * 100 : 0;
+    const cls = ch > 0 ? 'up' : ch < 0 ? 'down' : '';
+    const fmt = (n) => n.toLocaleString('ja-JP', { maximumFractionDigits: q.currency === 'JPY' ? 1 : 2 });
+    return `<div class="qrow"><span class="qn">${esc(q.name)} <span class="meta">${esc(q.code)}</span></span>
+      <span class="qp">${fmt(q.price)}</span><span class="qc ${cls}">${ch >= 0 ? '+' : ''}${fmt(ch)}（${pc >= 0 ? '+' : ''}${pc.toFixed(2)}%）</span></div>`;
+  }).join('');
+  $('#stocks-at').textContent = latest ? `${hm(new Date(latest * 1000))}時点` : '';
+}
+function renderStockEditor() {
+  $('#stocks').innerHTML = stockList.map((s, i) => `<div class="edit-row">
+      <input class="sk-code" data-i="${i}" value="${esc(s.code)}" placeholder="7203.T">
+      <input class="sk-name" data-i="${i}" value="${esc(s.name)}" placeholder="名前">
+      <span class="ops"><button class="btn small ghost" data-sk="del" data-i="${i}">×</button></span></div>`).join('')
+    + `<div class="muted">日本株はコードの後ろに .T（例 7203.T）、米国株はそのまま（例 AAPL）</div>
+    <div class="edit-bar"><button class="btn small ghost" data-sk="add">＋ 銘柄</button>
+    <button class="btn small ghost" data-sk="cancel">やめる</button><button class="btn small" data-sk="save">保存</button></div>`;
+}
+$('#stocks-edit').addEventListener('click', () => { stockEditing = !stockEditing; stockList = JSON.parse(JSON.stringify(stockList)); stockEditing ? renderStockEditor() : loadRemote(); });
+$('#stocks').addEventListener('input', (e) => {
+  const i = +e.target.dataset.i; if (Number.isNaN(i)) return;
+  if (e.target.classList.contains('sk-code')) stockList[i].code = e.target.value.trim().toUpperCase();
+  if (e.target.classList.contains('sk-name')) stockList[i].name = e.target.value.trim();
+});
+$('#stocks').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-sk]'); if (!b) return;
+  const a = b.dataset.sk;
+  if (a === 'add') { stockList.push({ code: '', name: '' }); renderStockEditor(); }
+  if (a === 'del') { stockList.splice(+b.dataset.i, 1); renderStockEditor(); }
+  if (a === 'cancel') { stockEditing = false; loadRemote(); }
+  if (a === 'save') {
+    const list = stockList.filter((s) => s.code);
+    try { const j = await post({ type: 'saveMoney', stocks: list }); if (!j.ok) throw 0; stockEditing = false; setStatus('銘柄を保存しました'); loadRemote(); }
+    catch { setStatus('銘柄を保存できませんでした'); }
+  }
+});
+
+// ---------- 経費の振り分け（経費の合言葉がある端末だけ） ----------
+let keihiItems = [];
+const KIND = { biz: '事業', personal: '私用', none: '対象外' };
+function renderKeihiCard() { $('#keihi-card').hidden = !(cfg.url && cfg.keihi); }
+$('#keihi-load').addEventListener('click', loadKeihi);
+async function loadKeihi() {
+  $('#keihi').innerHTML = '<div class="muted">読み込み中…（数十秒かかることがあります）</div>';
+  try {
+    const j = await post({ type: 'keihiList' }, cfg.keihi);
+    if (!j.ok) throw new Error(j.error);
+    keihiItems = j.items;
+    renderKeihi();
+  } catch (e) {
+    $('#keihi').innerHTML = `<div class="muted">読み込めませんでした${e.message === 'key' ? '（経費の合言葉が違います）' : ''}</div>`;
+  }
+}
+function renderKeihi() {
+  $('#keihi-count').textContent = keihiItems.length ? `未仕分け ${keihiItems.length}件` : '';
+  if (!keihiItems.length) { $('#keihi').innerHTML = '<div class="muted">未仕分けはありません</div>'; return; }
+  $('#keihi').innerHTML = keihiItems.map((k) => `<div class="krow" data-kid="${esc(k.id)}">
+      <div class="kmain"><span class="kshop">${esc(k.shop)}</span><span class="kamt">${k.amount ? yen(Number(k.amount)) : '金額不明'}</span></div>
+      <div class="kitem">${esc(k.item)}${k.more ? ` ほか${k.more}点` : ''}</div>
+      <div class="kops"><span class="meta">${md(k.date)}</span>
+        <button class="btn small" data-kk="biz">事業</button><button class="btn small ghost" data-kk="personal">私用</button><button class="btn small ghost" data-kk="none">対象外</button></div></div>`).join('')
+    + '<div class="meta">取り消しは元の仕訳アプリで（ポータルからはできません）</div>';
+}
+$('#keihi').addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-kk]'); if (!b) return;
+  const row = b.closest('[data-kid]'); const id = row.dataset.kid; const kind = b.dataset.kk;
+  row.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+  row.classList.add('busy');
+  try {
+    const j = await post({ type: 'keihiClassify', id, kind }, cfg.keihi);
+    if (!j.ok) throw new Error(j.error);
+    keihiItems = keihiItems.filter((k) => k.id !== id);
+    setStatus(`${KIND[kind]}に分けました${kind === 'biz' ? '（領収書をドライブに保存）' : ''}`);
+    renderKeihi();
+  } catch (err) {
+    row.classList.remove('busy');
+    row.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+    setStatus(err.message === 'rate' ? '1時間の上限（60件）に達しました' : err.message === 'not_pending' ? '一覧が古いので読み込み直してください' : '振り分けできませんでした');
+  }
+});
+
 function setStatus(t) { $('#status').textContent = t; }
 
 // ---------- リンク ----------
@@ -422,6 +545,8 @@ document.addEventListener('click', (e) => {
   if (!e.target.closest('[data-open-setup]')) return;
   $('#setup-url').value = cfg.url || '';
   $('#setup-key').value = cfg.key || '';
+  $('#setup-keihi').value = cfg.keihi || '';
+  $('#qr-keihi').checked = false;
   $('#setup').showModal();
 });
 // スマホへ設定を渡すQR（読み取り用の合言葉入り。押したときだけ作り、閉じたら消す）
@@ -442,7 +567,8 @@ $('#qr-btn').addEventListener('click', async () => {
   const url = $('#setup-url').value.trim(), key = $('#setup-key').value.trim();
   if (!url || !key) { box.hidden = false; box.textContent = '先にURLと合言葉を入れてください'; return; }
   try { await loadQrLib(); } catch { box.hidden = false; box.textContent = 'QRの部品を読み込めませんでした'; return; }
-  const link = `${location.origin}${location.pathname}#setup=${encodeURIComponent(url + '|' + key)}`;
+  const kk = $('#qr-keihi').checked ? $('#setup-keihi').value.trim() : '';
+  const link = `${location.origin}${location.pathname}#setup=${encodeURIComponent(url + '|' + key + (kk ? '|' + kk : ''))}`;
   const q = window.qrcode(0, 'M'); q.addData(link); q.make();
   box.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true })
     + '<div class="muted">スマホのカメラで読み取ってください。人に見せないでください。</div>';
@@ -452,7 +578,8 @@ $('#setup').addEventListener('close', () => { $('#qr').hidden = true; $('#qr').i
 
 $('#setup-form').addEventListener('submit', (e) => {
   if (e.submitter && e.submitter.value === 'save') {
-    cfg = { url: $('#setup-url').value.trim(), key: $('#setup-key').value.trim() };
+    cfg = { url: $('#setup-url').value.trim(), key: $('#setup-key').value.trim(), keihi: $('#setup-keihi').value.trim() };
+    renderKeihiCard();
     save(LS.cfg, cfg);
     loadRemote();
   }
@@ -482,6 +609,7 @@ if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catc
 // ---------- 起動 ----------
 renderDate();
 renderLinks();
+renderKeihiCard();
 loadWeather();
 loadRemote();
 document.addEventListener('visibilitychange', () => {

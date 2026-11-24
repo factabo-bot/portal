@@ -190,3 +190,33 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .wses summary { cursor: pointer; color: var(--muted); font-size: .8rem; }
 .wses div { padding-left: 1em; }
 .wprog .meta { margin-top: 2px; }
+
+/* 家計 */
+.mrow { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.mbig { font-size: 1.4rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mbar { position: relative; height: 10px; border-radius: 5px; background: var(--chip); margin: 8px 0 4px; overflow: visible; }
+.mfill { height: 100%; border-radius: 5px; background: #3c7a5a; }
+.mfill.over { background: var(--accent); }
+.mpace { position: absolute; top: -3px; width: 2px; height: 16px; background: var(--ink); opacity: .6; }
+.mbud { margin-top: 6px; }
+.mbud input { width: 9em; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); }
+/* 株価 */
+.qrow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.qrow:first-child { border-top: none; }
+.qn { min-width: 0; overflow-wrap: anywhere; }
+.qp { font-weight: 700; }
+.qc { font-size: .85rem; }
+.qc.up { color: #c0392b; } .qc.down { color: #2e6fb5; }
+@media (prefers-color-scheme: dark) { .qc.up { color: #ff8a73; } .qc.down { color: #7fb2ff; } }
+/* 経費 */
+.krow { padding: 7px 0; border-top: 1px solid var(--line); }
+.krow:first-child { border-top: none; }
+.krow.busy { opacity: .5; }
+.kmain { display: flex; justify-content: space-between; gap: 8px; }
+.kshop { font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.kamt { font-variant-numeric: tabular-nums; flex: none; }
+.kitem { font-size: .85rem; overflow-wrap: anywhere; }
+.kops { display: flex; gap: 4px; align-items: center; margin-top: 4px; flex-wrap: wrap; }
+.kops .meta { margin-right: auto; color: var(--muted); font-size: .78rem; }
+.chk { display: flex !important; align-items: center; gap: 6px; }
+.chk input { width: auto; }

@@ -2,9 +2,10 @@
 // 合言葉は2つ（Secret.js、tools/deploy.py が .local.json から書き出す）：
 //   WEBAPP_TOKEN … ブラウザ用。読む・リンクの保存だけ
 //   PUSH_TOKEN   … PCの見回り役だけが持つ。セッション一覧の書き込み用
+//   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 6;
+var VERSION = 7;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';
@@ -51,7 +52,11 @@ function doPost(e) {
     return json_({ ok: true, updated: n });
   }
 
+  if (String(body.type || '').indexOf('keihi') === 0) return json_(keihiHandle_(body));
+
   if (!same_(body.key, WEBAPP_TOKEN)) return json_({ ok: false, error: 'key' });
+
+  if (body.type === 'saveMoney') return json_(saveMoneySettings_(props, body));
 
   if (body.type === 'get') {
     var out = { ok: true, version: VERSION };
@@ -62,6 +67,14 @@ function doPost(e) {
     var ses = props.getProperty(SESSIONS_KEY);
     out.sessions = ses ? JSON.parse(ses) : null;
     out.wishes = wishes_(props);
+    var cache = CacheService.getScriptCache();
+    try {
+      var mf = cache.get('mf_month');
+      out.mf = mf ? JSON.parse(mf) : mfMonth_();
+      if (!mf) cache.put('mf_month', JSON.stringify(out.mf), 1800);
+      out.mf.budget = Number(props.getProperty(MF_BUDGET_KEY) || 0);
+    } catch (err) { out.mfError = String(err).slice(0, 120); }
+    try { out.stocks = stocks_(); } catch (err) { out.stocksError = String(err).slice(0, 120); }
     return json_(out);
   }
   // やりたいこと：1件ずつ別のキー（wish_<id>）に置く。1つの値の上限（9KB）に全体が縛られないように
