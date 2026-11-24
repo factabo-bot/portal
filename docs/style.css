@@ -57,7 +57,22 @@ a { color: inherit; }
   grid-template-columns: minmax(0, 1fr);
 }
 @media (min-width: 860px) {
-  .layout { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); align-items: start; }
+  .layout { grid-template-columns: minmax(0, 5fr) minmax(0, 7fr) 60px; align-items: start; max-width: 1180px; }
+  .top { max-width: 1180px; }
+  /* PC：リンクは右端の細い列にアイコンだけ（名前はマウスを乗せると出る） */
+  #links:not(.editing) { position: sticky; top: calc(12px + env(safe-area-inset-top, 0px)); gap: 0;
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 6px 0; }
+  #links:not(.editing) .card { background: none; border: none; border-radius: 0; padding: 6px 0; }
+  #links:not(.editing) .card + .card { border-top: 1px solid var(--line); }
+  #links:not(.editing) .card h2 { display: none; }
+  #links:not(.editing) .tiles { grid-template-columns: 1fr; justify-items: center; gap: 4px; }
+  #links:not(.editing) .tile { padding: 6px; background: none; border-radius: 10px; }
+  #links:not(.editing) .tile:hover { background: var(--chip); outline: none; }
+  #links:not(.editing) .tile .ic { width: 32px; height: 32px; }
+  #links:not(.editing) .tile .ic img { width: 22px; height: 22px; }
+  #links:not(.editing) .tile .nm { display: none; }
+  /* 編集中は細い列では狭すぎるので、上に横いっぱいで出す */
+  #links.editing { grid-column: 1 / -1; grid-row: 1; }
 }
 .col, .links { display: grid; gap: 16px; min-width: 0; align-content: start; }
 /* スマホ（1列）は列の枠を外して、見る回数の順に並べる（原則6） */

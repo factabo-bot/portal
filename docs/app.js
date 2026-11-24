@@ -613,22 +613,30 @@ function setStatus(t) { $('#status').textContent = t; }
 // ---------- リンク ----------
 const COLORS = ['#b5462f', '#3c7a5a', '#2e6fb5', '#8a5a9e', '#c07a1f', '#4b6b7a', '#9e4a6e'];
 function colorOf(s) { let h = 0; for (const c of s) h = (h * 31 + c.charCodeAt(0)) >>> 0; return COLORS[h % COLORS.length]; }
+const GICON = {
+  'mail.google.com': 'https://ssl.gstatic.com/ui/v1/icons/mail/rfr/gmail.ico',
+  'calendar.google.com': 'https://ssl.gstatic.com/calendar/images/dynamiclogo_2020q4/calendar_24_2x.png',
+  'drive.google.com': 'https://ssl.gstatic.com/images/branding/product/2x/drive_2020q4_32dp.png',
+};
 function iconHtml(l) {
   let host = '';
   try { host = new URL(l.url).hostname; } catch {}
   const letter = esc((l.name || '?').trim().charAt(0));
   if (host && !host.endsWith('github.io')) {
-    return `<span class="ic" style="background:var(--card)"><img src="https://www.google.com/s2/favicons?domain=${esc(host)}&sz=64" alt="" loading="lazy" referrerpolicy="no-referrer" data-fb="${letter}" data-bg="${colorOf(l.name)}"></span>`;
+    // Google の各サービスは汎用の「G」になって見分けられないので、製品ごとのアイコンを使う
+    const src = GICON[host] || `https://www.google.com/s2/favicons?domain=${host}&sz=64`;
+    return `<span class="ic" style="background:var(--card)"><img src="${esc(src)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-fb="${letter}" data-bg="${colorOf(l.name)}"></span>`;
   }
   return `<span class="ic" style="background:${colorOf(l.name)}">${letter}</span>`;
 }
 
 function renderLinks() {
   const root = $('#links');
+  root.classList.toggle('editing', !!editing);
   if (editing) { renderEditor(); return; }
   root.innerHTML = links.sections.map((s) => `<div class="card sec">
       <h2>${esc(s.title)}</h2>
-      <div class="tiles">${s.links.map((l) => `<a class="tile" href="${esc(l.url)}">${iconHtml(l)}<span class="nm">${esc(l.name)}</span></a>`).join('')}</div>
+      <div class="tiles">${s.links.map((l) => `<a class="tile" href="${esc(l.url)}" title="${esc(l.name)}" aria-label="${esc(l.name)}">${iconHtml(l)}<span class="nm">${esc(l.name)}</span></a>`).join('')}</div>
     </div>`).join('');
   root.querySelectorAll('img[data-fb]').forEach((img) => img.addEventListener('error', () => {
     img.parentNode.style.background = img.dataset.bg;
