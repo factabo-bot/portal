@@ -181,15 +181,13 @@ function renderSessions(data) {
       <div class="sline"><span class="badge">${ST[s.state] || ''}</span><span class="stitle">${esc(s.title)}</span></div>
       ${s.q ? `<div class="sq">${esc(s.q)}</div>` : ''}
       <div class="meta">${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)}</div></div>`;
-  const pick = (st) => list.filter((s) => s.state === st);
-  const urgent = [...pick('ask'), ...pick('stuck')];
-  const work = pick('work');
-  const done = pick('done');
+  // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
+  const sorted = [...list].sort((a, b) => b.at - a.at);
+  const head = sorted.slice(0, 10), rest = sorted.slice(10);
   const at = new Date(data.at);
   const stale = Date.now() - at.getTime() > 90 * 60000;
-  el.innerHTML = (urgent.length ? urgent.map(row).join('') : '<div class="muted">あなたの番のセッションはありません</div>')
-    + (work.length ? `<div class="sgroup">作業中</div>${work.map(row).join('')}` : '')
-    + (done.length ? `<details class="sdone"><summary>返事済み ${done.length}件（48時間以内）</summary>${done.map(row).join('')}</details>` : '')
+  el.innerHTML = (head.length ? head.map(row).join('') : '<div class="muted">48時間以内のセッションはありません</div>')
+    + (rest.length ? `<details class="sdone"><summary>ほか ${rest.length}件（48時間以内）</summary>${rest.map(row).join('')}</details>` : '')
     + `<div class="supd${stale ? ' stale' : ''}">PCから ${at.getMonth() + 1}/${at.getDate()} ${hm(at)} に更新${stale ? '（PCが止まっているかもしれません）' : ''}</div>`;
 }
 
