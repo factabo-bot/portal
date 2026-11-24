@@ -502,9 +502,12 @@ function renderHoldings(h) {
   const sum = (a, k) => a.reduce((x, y) => x + y[k], 0);
   const grp = (title, list, row, extra) => list.length ? `<details class="hgrp"><summary><span>${title}</span><span>${yen(sum(list, 'value'))}</span>${extra || ''}</summary>
       <div class="hhead"><span>銘柄</span><span>評価額</span><span>前日比</span><span>評価損益</span></div>${list.map(row).join('')}</details>` : '';
+  const tile = (label, v, p, extra) => `<div class="htile"><div class="meta">${label}</div><div class="hbig">${yen(v)}</div>
+      <div class="${pnlCls(p)}">評価損益 ${sign(p)}円</div>${extra || ''}</div>`;
   $('#hold').innerHTML = `<div class="mrow"><span class="mbig">${yen(total)}</span>
-      <span class="${pnlCls(pnl)}">評価損益 ${sign(pnl)}円</span>
-      <span class="${pnlCls(h.stockDay)}">株の前日比 ${sign(h.stockDay)}円</span></div>
+      <span class="${pnlCls(pnl)}">評価損益 ${sign(pnl)}円</span></div>
+    <div class="htiles">${tile('個別株（日本株＋米国株）', h.stockTotal, h.stockPnl, `<div class="meta ${pnlCls(h.stockDay)}">前日比 ${sign(h.stockDay)}円</div>`)}
+      ${tile(`投資信託（${md(h.at)}時点）`, h.fundTotal, h.fundPnl)}</div>
     ${grp('日本株', jp, srow)}${grp('米国株', us, srow, `<span class="meta">1ドル${h.fx ? h.fx.toFixed(2) : '—'}円</span>`)}${grp('投資信託', h.funds, frow)}
     <div class="meta">投資信託の基準価額は貼り付けた日のまま。売買したら貼り直してください</div>`;
 }
