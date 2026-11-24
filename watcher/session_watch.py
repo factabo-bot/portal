@@ -237,4 +237,10 @@ if __name__ == "__main__":
             main()
     except Exception as e:  # noqa: BLE001
         log("error: " + repr(e)[:300])
-        raise
+    # ひと区切りついたセッションを要約する（やりたいことの見立ての材料。1回に最大3件）
+    if "--dry" not in sys.argv:
+        try:
+            import summarize
+            summarize.run(3, log=log)
+        except Exception as e:  # noqa: BLE001
+            log("summary error: " + repr(e)[:300])

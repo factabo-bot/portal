@@ -8,3 +8,4 @@ watcher/accounts.json
 watcher/wish_state.json
 watcher/_llm/
 gas/src/BudgetPrivate.js
+watcher/summaries/

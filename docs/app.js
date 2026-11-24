@@ -256,11 +256,12 @@ function progressHtml(p, w) {
     ? `<details class="wses"><summary>関係するセッション ${p.sessions.length}件</summary>${p.sessions.map((s) => `<div>${esc(s.t)} <span class="meta">${md(s.d)}</span></div>`).join('')}</details>` : '';
   const tasks = p.tasks || [];
   const doneN = tasks.filter((t) => t.s === '済').length;
-  const MARK = { '済': '✓', '途中': '◐', '未': '○' };
+  const MARK = { '済': '✓', '途中': '◐', '待ち': '⏸', '未': '○' };
   const trow = (t) => {
-    const inner = `<span class="tm">${MARK[t.s] || '○'}</span>${esc(t.t)}${!PHONE && t.s !== '済' ? `<span class="tgo">${continueUrl(t, '') ? '続き' : '始める'}</span>` : ''}`;
-    const cls = `wtask ts-${t.s === '済' ? 'done' : t.s === '途中' ? 'doing' : 'todo'}`;
-    return !PHONE && w ? `<a class="${cls}" href="${esc(taskLink(w, t))}">${inner}</a>` : `<div class="${cls}">${inner}</div>`;
+    const inner = `<span class="tm">${MARK[t.s] || '○'}</span><span class="tt">${esc(t.t)}${t.by === '人' ? '<span class="tby" title="本人・伴走で決めた（見立て役は変えない）">✎</span>' : ''}${t.hint ? `<span class="thint">見立て：${esc(t.hint)}</span>` : ''}</span>${!PHONE && t.s !== '済' ? `<span class="tgo">${continueUrl(t, '') ? '続き' : '始める'}</span>` : ''}`;
+    const cls = `wtask ts-${t.s === '済' ? 'done' : t.s === '途中' ? 'doing' : t.s === '待ち' ? 'wait' : 'todo'}`;
+    const tip = t.basis ? ` title="${esc((t.s === '待ち' ? '待っているもの：' : '根拠：') + t.basis)}"` : '';
+    return !PHONE && w ? `<a class="${cls}" href="${esc(taskLink(w, t))}"${tip}>${inner}</a>` : `<div class="${cls}"${tip}>${inner}</div>`;
   };
   // 作業の数に上限はない。出すのは「途中」と次の「未」1つだけ、全部は畳む（原則2）
   const doing = tasks.filter((t) => t.s === '途中');

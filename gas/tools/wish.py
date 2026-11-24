@@ -2,8 +2,9 @@
   python tools/wish.py add "ノートPCを買いたい" [--at 2026-11-24]
   python tools/wish.py list [--all]
   python tools/wish.py done <id> | drop <id> [--note 理由] | open <id>
-  python tools/wish.py progress <id> --stage 進んでいる --line "今の状況" --tasks "済:候補を絞る|途中:機種を決める|未:買う"
-    （伴走のセッションから、その場で見立てを書き換える。関係セッションの記録は残す）
+  python tools/wish.py progress <id> --stage 進んでいる --line "今の状況" --tasks "済:候補を絞る|待ち:価格を待つ|未:買う" [--note 根拠]
+    （伴走のセッションから、その場で見立てを書き換える。新しく足した・状態を変えた作業には「人が決めた」印が付き、
+      毎朝の見立て役はそこを変えない。--unpin で印を外して見立て役に任せる。関係セッションの記録は残す）
 """
 import argparse
 import json
@@ -36,6 +37,7 @@ def main():
     ap.add_argument("--at")
     ap.add_argument("--note")
     ap.add_argument("--all", action="store_true")
+    ap.add_argument("--unpin", action="store_true", help="progress で「人が決めた」印を外す")
     a = ap.parse_args()
     if a.cmd == "add":
         w = post({"type": "wishAdd", "text": a.arg, "at": a.at})["wish"]
@@ -59,10 +61,22 @@ def main():
             for part in a.tasks.split("|"):
                 s, _, t = part.partition(":")
                 item = {"t": t.strip(), "s": s.strip()}
-                src = keep.get(item["t"]) or latest
+                if item["s"] not in ("済", "途中", "待ち", "未"):
+                    sys.exit(f"状態は 済・途中・待ち・未 のどれか: {part}")
+                before = keep.get(item["t"])
+                src = before or latest
                 if src and src.get("open"):
                     item.update({k: src[k] for k in ("app", "open", "ref") if k in src})
+                # 人（本人・伴走のセッション）が新しく足した／状態を変えた作業は「人が決めた」印。見立て役は変えない
+                if before is None or before.get("s") != item["s"] or before.get("by") == "人":
+                    item["by"] = "人"
+                    item["basis"] = (a.note or (before or {}).get("basis") or "本人・伴走で決めた")[:80]
+                elif before.get("basis"):
+                    item["basis"] = before["basis"]
                 tasks.append(item)
+        if a.unpin:   # 「人が決めた」印を全部外して、見立て役に任せる
+            for t in tasks:
+                t.pop("by", None)
         item = {"id": a.arg, "stage": a.stage or old.get("stage", "未着手"), "line": a.line if a.line is not None else old.get("line", ""),
                 "tasks": tasks, "sessions": old.get("sessions", [])}
         print(post({"type": "wishProgress", "items": [item]}, CFG["pushToken"]))

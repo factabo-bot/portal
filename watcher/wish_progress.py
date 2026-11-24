@@ -122,80 +122,131 @@ def attach(items, refs):
         for k in ("tasks", "sessions"):
             for x in it.get(k) or []:
                 ref0 = str(x.pop("ref", "") or "")[:8]
-                for k2 in ("app", "open"):
-                    x.pop(k2, None)
+                had = {k2: x.pop(k2) for k2 in ("app", "open") if k2 in x}
                 r = refs.get(ref0)
+                if not r and had.get("open"):   # 人が決めた作業などで、元のリンクを持っているとき
+                    x.update(had)
                 if r:
                     x.update(r)
                     x["ref"] = ref0   # 次回の見立てに引き継ぐための印
     return items
 
 
+MEMORY_DIR = MEMORY_INDEX.parent
+SUMMARY_DIR = HERE / "summaries"
+TASK_STATES = ["済", "途中", "待ち", "未"]
+
+
+def enforce(items, wishes):
+    """根拠のない状態は「未」に戻す。人が決めた作業（by=人）は変えず、見立ての意見は hint に回す"""
+    prev = {w["id"]: (w.get("progress") or {}) for w in wishes}
+    for it in items:
+        tasks = []
+        for t in it.get("tasks") or []:
+            t["s"] = t.get("s") if t.get("s") in TASK_STATES else "未"
+            if t["s"] != "未" and not str(t.get("basis") or "").strip():
+                t["s"] = "未"
+            tasks.append(t)
+        pinned = [t for t in (prev.get(it["id"], {}).get("tasks") or []) if t.get("by") == "人"]
+        for pt in pinned:
+            cur = next((t for t in tasks if t.get("t") == pt["t"]), None)
+            if cur is None:   # 見立てが落とした人の作業は元の位置に戻す
+                keep = dict(pt)
+                old = prev[it["id"]].get("tasks") or []
+                pos = min(old.index(pt), len(tasks))
+                tasks.insert(pos, keep)
+                continue
+            if cur["s"] != pt["s"]:
+                cur["hint"] = f"{cur['s']}かも：{cur.get('basis', '')}"[:60]
+            else:
+                cur.pop("hint", None)
+            for k in ("s", "by", "basis"):
+                if k in pt:
+                    cur[k] = pt[k]
+                else:
+                    cur.pop(k, None) if k != "s" else None
+            for k in ("app", "open", "ref"):
+                if k in pt and not cur.get(k):
+                    cur[k] = pt[k]
+        it["tasks"] = tasks
+    return items
+
+
 def main():
+    import summarize
     state = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
-    since = state.get("last_run", time.time() - FIRST_LOOKBACK_D * 86400) - 86400
+    last = state.get("last_run", time.time() - FIRST_LOOKBACK_D * 86400)
     wishes = [w for w in post({"type": "get"}, CFG["token"])["wishes"] if w["state"] == "open"]
     if not wishes:
         return
-    sessions = []
-    for p in PROJECTS.glob("*/*.jsonl"):
-        try:
-            if p.stat().st_mtime < since:
-                continue
-        except OSError:
-            continue
-        d = digest(p)
-        if d:
-            sessions.append(d)
-    sessions.sort(key=lambda s: s["end"])
+    sums = summarize.load_all()
+    # 材料1：やりたいことに結び付いたセッションの要約
+    linked = {}
+    for w in wishes:
+        pr = w.get("progress") or {}
+        refs = {x.get("ref") for x in (pr.get("sessions") or []) + (pr.get("tasks") or []) if x.get("ref")}
+        linked[w["id"]] = [{"ref": k[:8], "title": v.get("title"), "summary": v["summary"]}
+                           for k, v in sums.items() if k[:8] in refs]
+    # 材料2：前回以降に要約が更新されたセッション
+    recent = [{"ref": k[:8], "title": v.get("title"), "app": v.get("app"), "folder": v.get("folder"),
+               "updated": v.get("updated"), "summary": v["summary"]}
+              for k, v in sums.items() if v.get("mtime", 0) >= last - 86400]
+    recent.sort(key=lambda r: r["updated"] or "")
     new_wish = any("progress" not in w for w in wishes)
-    if not sessions and not new_wish and "--force" not in sys.argv:
+    if not recent and not new_wish and "--force" not in sys.argv:
         state["last_run"] = time.time()
         STATE.write_text(json.dumps(state), encoding="utf-8")
         return
+    wl = [{"id": w["id"], "text": w["text"], "思った日": w["at"], "前回の見立て": w.get("progress"),
+           "結び付いたセッションの要約": linked[w["id"]]} for w in wishes]
+    prompt = f"""あなたは本人の「やりたいこと」の進み具合を見立てる係です。
 
-    memory = MEMORY_INDEX.read_text(encoding="utf-8") if MEMORY_INDEX.exists() else ""
-    wl = [{"id": w["id"], "text": w["text"], "思った日": w["at"], "前回の見立て": w.get("progress")} for w in wishes]
-    prompt = f"""あなたは本人の「やりたいこと」の進み具合を見立てる係です。道具は使わず、下の材料だけで答えてください。
+# 使ってよい材料
+- 下のやりたいこと（前回の見立てと、結び付いたセッションの要約つき）と、最近のセッションの要約
+- 本人の記憶：{MEMORY_DIR}（MEMORY.md が索引、各 .md が本文）。Read・Grep・Glob で読んでよい
+  **やりたいことに関係しそうな記憶は、索引の1行で判断せず必ず本文を読む**（決め方・待ち条件・取り消しは本文にある）
+- セッションの要約の元：{SUMMARY_DIR}（記録IDの .json）。必要なら読んでよい
+- これ以外は読まない。書き込み・外への通信はしない
 
-# やりたいこと（前回の見立てがあれば、それを今回の材料で更新する）
-{json.dumps(wl, ensure_ascii=False, indent=1)}
+# やりたいこと
+{json.dumps(wl, ensure_ascii=False)}
 
-# 前回以降に動いた Claude とのセッション（ref＝印・名前・期間・最初の頼みごとの頭・最後の返事の頭）
-{json.dumps(sessions, ensure_ascii=False)}
-
-# 本人の記憶の索引（決まったこと・進行中のことの一覧。日付つき）
-{memory}
+# 前回以降に要約が更新されたセッション（ref＝印）
+{json.dumps(recent, ensure_ascii=False)}
 
 # 答え方
-やりたいことごとに、次の形の JSON 配列だけを出力する（前置き・説明・コードブロック記号は不要）。
-[{{"id": "…", "stage": "未着手|考え中|進んでいる|ほぼできた|かなったかも", "line": "今どこまで来ているかを40字以内の日本語で", "tasks": [{{"t": "作業（20字以内）", "s": "済|途中|未", "ref": "その作業をやっていたセッションの ref（無ければ空）"}}], "sessions": [{{"ref": "セッションの ref", "t": "関係するセッション名", "d": "最後の日付 YYYY-MM-DD"}}]}}]
-- stage は5つのどれか。材料に何も無ければ「未着手」。前回の見立てより後退させるのは、材料に根拠があるときだけ
-- 「かなったかも」は、買った・完成した・決めて終えた等が材料にはっきりあるときだけ
-- line は事実だけ。金額・人名・住所などの細かい個人情報は書かない
-- tasks は、やりたいことを1つのプロジェクトとみなし、かなえるまでの作業に分けたもの。数に上限はなく、必要なだけ出す。1つの作業は1〜数回で終わる大きさにそろえ、順番は進める順。
-  前回の見立てに tasks があれば、言い回しと並びをそのまま引き継ぎ、状態（済・途中・未）だけを材料に合わせて更新する。
-  作業を足す・分け直すのは、材料から新しく必要な作業がはっきりしたときだけ。済にするのは材料に終えた根拠があるときだけ
-- stage は tasks の進み具合と合うようにする
-- tasks の ref は、その作業をいちばん最近進めていたセッション。前回の見立ての ref は、新しいセッションで進んでいなければ引き継ぐ
-- sessions は関係が明らかなものだけ、最大5件。無ければ空配列（前回の見立ての sessions は引き継いでよい）
+やりたいことごとに、次の形の JSON 配列だけを最後に出力する（前置き・コードブロック記号は不要）。
+[{{"id": "…", "stage": "未着手|考え中|進んでいる|ほぼできた|かなったかも", "line": "今どこまで来ているか（40字以内）",
+  "tasks": [{{"t": "作業（20字以内）", "s": "済|途中|待ち|未", "basis": "根拠にした材料（記憶ファイル名かセッションの ref と、その中身を一言。40字以内）", "ref": "その作業を進めていたセッションの ref（無ければ空）"}}],
+  "sessions": [{{"ref": "…", "t": "セッション名", "d": "YYYY-MM-DD"}}],
+  "sources": ["根拠にした記憶ファイル名やセッションの ref"]}}]
+- 作業は、やりたいことを1つのプロジェクトとして、かなえるまでに要る作業。数の上限はない。1〜数回で終わる大きさ、進める順
+- 状態：済＝終えた根拠がある／途中＝手を付けた根拠がある／待ち＝外の出来事や人の返事を待っている（何を待つかを basis に）／未＝それ以外
+  **済・途中・待ちには必ず basis を書く。根拠が無ければ「未」**。推測で途中にしない
+- 前回の作業は、言い回しと並びを引き継ぐ。足す・分け直すのは材料ではっきりしたときだけ
+- by が「人」の作業は本人が決めたもの。t と s を変えずにそのまま出す（違うと思えば basis に理由を書くだけ）
+- stage は作業の進み具合と合わせる。「かなったかも」は、買った・完成した等が材料にはっきりあるときだけ
+- line・basis は事実だけ。金額の細部・人名・住所は書かない
 """
     WORKDIR.mkdir(exist_ok=True)
     claude = str(pathlib.Path.home() / ".local" / "bin" / "claude.exe")
-    r = subprocess.run([claude, "-p", "--model", "sonnet"], input=prompt, cwd=WORKDIR,
-                       capture_output=True, text=True, encoding="utf-8", timeout=900)
+    r = subprocess.run([claude, "-p", "--model", "sonnet", "--no-session-persistence",
+                        "--tools", "Read,Grep,Glob", "--allowedTools", "Read,Grep,Glob",
+                        "--add-dir", str(MEMORY_DIR), "--add-dir", str(SUMMARY_DIR)],
+                       input=prompt, cwd=WORKDIR, capture_output=True, text=True, encoding="utf-8", timeout=1200)
     out = r.stdout or ""
-    m = re.search(r"\[.*\]", out, re.S)
+    m = re.search(r"\[\s*\{.*\}\s*\]", out, re.S)
     if r.returncode != 0 or not m:
-        raise RuntimeError(f"claude -p の返事を読めない rc={r.returncode} {out[:200]} {r.stderr[:200]}")
+        raise RuntimeError(f"claude -p の返事を読めない rc={r.returncode} {out[-300:]} {r.stderr[:200]}")
     items = json.loads(m.group(0))
     ids = {w["id"] for w in wishes}
     items = [it for it in items if it.get("id") in ids and it.get("stage") in STAGES]
+    items = enforce(items, wishes)
     items = attach(items, ref_map())
     res = post({"type": "wishProgress", "items": items}, CFG["pushToken"])
     state["last_run"] = time.time()
     STATE.write_text(json.dumps(state), encoding="utf-8")
-    log(f"progress {res.get('updated')} wishes from {len(sessions)} sessions")
+    log(f"progress {res.get('updated')} wishes from {len(recent)} summaries")
     if "--show" in sys.argv:
         sys.stdout.reconfigure(encoding="utf-8")
         print(json.dumps(items, ensure_ascii=False, indent=1))
