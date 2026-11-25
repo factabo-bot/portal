@@ -152,6 +152,7 @@ function renderRemote(j) {
   // セッション（と、新しく開く先を決める使用量）
   if ('sessions' in j) { lastQuota = (j.sessions && j.sessions.quota) || null; renderSessions(j.sessions); }
   // 研修の作業記録メモ
+  if (Array.isArray(j.diary)) diary = j.diary;
   if (Array.isArray(j.memos)) { memos = j.memos; renderMemos(); }
   // やりたいこと
   if (Array.isArray(j.wishes)) { wishes = j.wishes; renderWishes(); }
@@ -273,6 +274,7 @@ function putSessions(data) {
   if (cached) save(LS.remote, { ...cached, sessions: data });
   lastQuota = data.quota || null;
   renderDest();
+  renderMemos();
   const open = !!$('#sessions .sdone')?.open;
   renderSessions(data);
   if (open) { const d = $('#sessions .sdone'); if (d) d.open = true; }
@@ -964,25 +966,41 @@ let memoEdit = null;   // 直しているメモのID
 let memoNewId = null;  // 送り直しても二重にならないよう、保存できるまで同じIDを使う
 const MEMO_DRAFT = 'portal-memo-draft';
 const hexId = () => [...crypto.getRandomValues(new Uint8Array(4))].map((b) => b.toString(16).padStart(2, '0')).join('');
-function memoPrompt(date, n) {
-  return `研修の作業記録を作ってください（farm-diary-text スキル、対象日 ${date}）。ポータルの作業記録メモ${n}件と、アプリのその日の記録を読んで始めてください。`;
+let diary = [];        // 記録にした日と、その会話
+const voiceOf = () => ((load(LS.remote, {}) || {}).sessions || {}).voice || {};
+function memoPrompt(date, n, v) {
+  const src = [n ? `ポータルの作業記録メモ${n}件` : '', v ? `音声${v}件` : '', 'アプリのその日の記録'].filter(Boolean).join('・');
+  return `研修の作業記録を作ってください（farm-diary スキル、対象日 ${date}）。${src}を読んで始めてください。`;
+}
+// 記録を作った会話へ戻る
+function diaryLink(d) {
+  if (!PHONE) return continueUrl({ app: d.app, open: d.host || d.cli }, `${d.date} の作業記録を直したい：`);
+  const l = ((load(LS.remote, {}).sessions || {}).sessions || []).find((y) => y.open === (d.host || d.cli) || y.cli === d.cli);
+  const ph = l && phoneLink(l.rc, l.acct);
+  return ph && !ph.via ? ph.url : '';
 }
 function renderMemos() {
   $('#memo-count').textContent = memos.length ? `まだ記録にしていないメモ ${memos.length}件` : '';
-  const days = [...new Set(memos.map((m) => m.date))].sort().reverse();
+  const voice = voiceOf();
+  const days = [...new Set([...memos.map((m) => m.date), ...Object.keys(voice).filter((d) => voice[d])])].sort().reverse();
+  const wasOpen = !!$('#memos .mdone')?.open;
   $('#memos').innerHTML = days.map((d) => {
     const list = memos.filter((m) => m.date === d);
     const wd = WD[new Date(d.replace(/-/g, '/')).getDay()];
-    const prompt = memoPrompt(d, list.length);
+    const prompt = memoPrompt(d, list.length, voice[d]);
     let go;
     if (PHONE) go = `<button type="button" class="btn small" data-mcopy="${esc(d)}">文をコピーしてClaudeを開く</button>`;
     else {
       const a = chooseApp().app, b = a === 'VS Code' ? 'デスクトップ' : 'VS Code';
       go = `<a class="btn small" href="${esc(newUrl(a, prompt))}" title="${esc(quotaText(a))}">Claudeで記録にする（${a}）</a><a class="slink" href="${esc(newUrl(b, prompt))}" title="${esc(quotaText(b))}">${b}で</a>`;
     }
-    return `<div class="mday"><div class="mday-h"><b>${md(d)}（${wd}）</b>${go}</div>${list.map((m) => `<div class="mitem"><div class="mtext">${esc(m.t)}</div>
+    return `<div class="mday"><div class="mday-h"><b>${md(d)}（${wd}）${voice[d] ? `<span class="meta">　音声 ${voice[d]}件</span>` : ''}</b>${go}</div>${list.map((m) => `<div class="mitem"><div class="mtext">${esc(m.t)}</div>
       <span class="mops"><button type="button" class="btn small ghost" data-medit="${esc(m.id)}">直す</button><button type="button" class="btn small ghost" data-mdel="${esc(m.id)}">消す</button></span></div>`).join('')}</div>`;
-  }).join('');
+  }).join('') + (diary.length ? `<details class="mdone wses"${wasOpen ? ' open' : ''}><summary>記録にした日（${diary.length}）</summary>${diary.map((d) => {
+    const u = diaryLink(d), wd = WD[new Date(d.date.replace(/-/g, '/')).getDay()];
+    return `<div class="mrec"><span>${md(d.date)}（${wd}）</span>${u ? `<a class="slink" href="${esc(u)}"${PHONE ? ' target="_blank" rel="noopener noreferrer"' : ''}>会話を開いて直す</a>`
+      : `<button type="button" class="btn small ghost" data-hand="${esc(d.cli)}" data-title="${esc(d.date)} の作業記録">新しい会話で直す</button>`}</div>`;
+  }).join('')}</details>` : '');
 }
 function putMemos(list) {
   memos = list;
@@ -1041,7 +1059,7 @@ $('#memos').addEventListener('click', async (e) => {
   }
   if (copy) {
     const n = memos.filter((m) => m.date === copy.dataset.mcopy).length;
-    copyAndOpenClaude(memoPrompt(copy.dataset.mcopy, n));
+    copyAndOpenClaude(memoPrompt(copy.dataset.mcopy, n, voiceOf()[copy.dataset.mcopy]));
   }
 });
 

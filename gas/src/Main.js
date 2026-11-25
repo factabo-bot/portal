@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 20;
+var VERSION = 21;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';
@@ -29,7 +29,9 @@ function doPost(e) {
       quota[k] = { fh: Math.max(0, Math.min(100, Number(q.fh) || 0)), sd: Math.max(0, Math.min(100, Number(q.sd) || 0)),
         at: Number(q.at) || 0, fhReset: Number(q.fhReset) || 0, est: !!q.est };
     });
-    var s = JSON.stringify({ at: new Date().toISOString(), host: String(body.host || '').slice(0, 30), sessions: (body.sessions || []).slice(0, 30), quota: quota });
+    var voice = {};   // まだ文字起こししていない音声の数 {日付: 件数}
+    Object.keys(body.voice || {}).slice(0, 14).forEach(function (d) { if (/^\d{4}-\d{2}-\d{2}$/.test(d)) voice[d] = Math.max(0, Math.floor(Number(body.voice[d]) || 0)); });
+    var s = JSON.stringify({ voice: voice, at: new Date().toISOString(), host: String(body.host || '').slice(0, 30), sessions: (body.sessions || []).slice(0, 30), quota: quota });
     if (s.length > 8500) return json_({ ok: false, error: 'too_large' });
     props.setProperty(SESSIONS_KEY, s);
     return json_({ ok: true });
@@ -84,6 +86,7 @@ function doPost(e) {
     out.sessions = sessions_(props);
     out.wishes = wishes_(props);
     out.memos = memos_(props).filter(function (m) { return !m.done; });
+    out.diary = diary_(props);
     try { out.stocks = stocks_(); } catch (err) { out.stocksError = String(err).slice(0, 120); }
     return json_(out);
   }
@@ -98,6 +101,14 @@ function doPost(e) {
     if (was && was.date !== mdate) props.deleteProperty('memo_' + was.date + '_' + mid);
     props.setProperty('memo_' + mdate + '_' + mid, JSON.stringify({ id: mid, date: mdate, t: mt, at: was ? was.at : new Date().toISOString() }));
     return json_({ ok: true, memos: memos_(props).filter(function (m) { return !m.done; }) });
+  }
+  // その日の作業記録を作った会話（あとから戻って直せるように）
+  if (body.type === 'diarySave') {
+    var dd = String(body.date || ''), cli = String(body.cli || ''), host = String(body.host || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dd) || !/^[0-9a-f-]{36}$/.test(cli) || (host && !/^local_[0-9a-f-]{36}$/.test(host))) return json_({ ok: false, error: 'id' });
+    if (body.undo) { props.deleteProperty('diary_' + dd); return json_({ ok: true, diary: diary_(props) }); }
+    props.setProperty('diary_' + dd, JSON.stringify({ date: dd, cli: cli, host: host, app: host ? 'デスクトップ' : 'VS Code', at: new Date().toISOString() }));
+    return json_({ ok: true, diary: diary_(props) });
   }
   // 記録にした（done）・消す（delete）・未記録に戻す（open）
   if (body.type === 'memoMark') {
@@ -181,6 +192,18 @@ function memos_(props) {
   });
   list.sort(function (a, b) { return a.date === b.date ? (a.at < b.at ? -1 : 1) : (a.date < b.date ? -1 : 1); });
   return list;
+}
+
+// 記録を作った会話は30日分
+function diary_(props) {
+  var all = props.getProperties(), list = [], old = new Date(Date.now() - 30 * 86400000).toISOString();
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('diary_') !== 0) return;
+    var d = JSON.parse(all[k]);
+    if (d.at < old) { props.deleteProperty(k); return; }
+    list.push(d);
+  });
+  return list.sort(function (a, b) { return a.date < b.date ? 1 : -1; });
 }
 
 function hidden_(props) {

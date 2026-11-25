@@ -31,6 +31,9 @@ PROJECTS = pathlib.Path.home() / ".claude" / "projects"
 DESKTOP_SESSIONS = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Claude-Data" / "claude_pzs8sxrjxfjjc" / "claude-code-sessions"
 ACCOUNTS = HERE / "accounts.json"   # アカウントのIDと表示名（git 管理外）
 
+VOICE = pathlib.Path("G:/マイドライブ/obsidian/00_Inbox/_voice")   # 作業記録の音声を置く場所
+AUDIO = {".m4a", ".mp3", ".wav", ".aac", ".ogg", ".opus", ".flac", ".amr", ".3gp"}
+
 LOOKBACK_H = 48          # これより古いセッションは出さない
 MAX_SESSIONS = 20
 WORKING_GRACE_S = 180    # ツール実行中のまま、これ以上動きがなければ「止まっている（許可待ちかも）」
@@ -299,18 +302,34 @@ def quotas():
     return out
 
 
+def voices():
+    """まだ文字起こししていない音声の数 {録音日: 件数}（中身は読まない）"""
+    out = {}
+    try:
+        for p in VOICE.iterdir():
+            if p.suffix.lower() not in AUDIO:
+                continue
+            m = re.search(r"(?<!\d)(\d{2})(\d{2})(\d{2})_\d{6}", p.name)      # 音声 261125_130102.m4a
+            day = f"20{m[1]}-{m[2]}-{m[3]}" if m else time.strftime("%Y-%m-%d", time.localtime(p.stat().st_mtime))
+            out[day] = out.get(day, 0) + 1
+    except OSError:      # ドライブがまだ見えていない
+        pass
+    return out
+
+
 def main():
     cfg = json.loads(CFG.read_text(encoding="utf-8"))
     sessions = collect()
     q = quotas()
+    v = voices()
     coarse = {k: (v["fh"] // 5, v["sd"] // 5) for k, v in q.items()}   # 5%刻みで変わったら送り直す
-    digest = hashlib.sha256(json.dumps([sessions, coarse], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+    digest = hashlib.sha256(json.dumps([sessions, coarse, v], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     prev = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
     # 変化がなくても1時間に1回は送る（ポータル側で「最終更新」が古くならないように）
     if prev.get("digest") == digest and time.time() - prev.get("sent", 0) < 3600 and "--force" not in sys.argv:
         return
     body = json.dumps({"key": cfg["pushToken"], "type": "pushSessions", "host": socket.gethostname()[:30],
-                       "sessions": sessions, "quota": q}, ensure_ascii=False).encode("utf-8")
+                       "sessions": sessions, "quota": q, "voice": v}, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(cfg["url"], data=body, headers={"Content-Type": "text/plain;charset=utf-8"})
     with urllib.request.urlopen(req, timeout=90) as r:
         res = json.loads(r.read().decode("utf-8"))

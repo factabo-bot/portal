@@ -201,6 +201,9 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .memo-row { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
 .memo-row input { padding: 5px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; margin-right: auto; min-width: 0; }
 .mday { margin-top: 10px; border-top: 1px solid var(--line); padding-top: 8px; }
+.mday-h .meta { color: var(--muted); font-size: .78rem; font-weight: 400; }
+.mdone { margin-top: 8px; }
+.mrec { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; }
 .mday-h { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: baseline; }
 .mday-h b { margin-right: auto; }
 .mday-h a.btn { text-decoration: none; }
