@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 19;
+var VERSION = 20;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';
@@ -83,8 +83,35 @@ function doPost(e) {
     out.links = links ? JSON.parse(links) : null;
     out.sessions = sessions_(props);
     out.wishes = wishes_(props);
+    out.memos = memos_(props).filter(function (m) { return !m.done; });
     try { out.stocks = stocks_(); } catch (err) { out.stocksError = String(err).slice(0, 120); }
     return json_(out);
+  }
+  // 研修の作業記録メモ：1件ずつ memo_<日付>_<id>。同じ id で送れば上書き（送り直しても二重にならない）
+  if (body.type === 'memoList') return json_({ ok: true, memos: memos_(props) });
+  if (body.type === 'memoSave') {
+    var mid = String(body.id || ''), mdate = String(body.date || ''), mt = String(body.text || '').trim().slice(0, 2500);
+    if (!/^[0-9a-f]{8}$/.test(mid) || !/^\d{4}-\d{2}-\d{2}$/.test(mdate)) return json_({ ok: false, error: 'id' });
+    if (!mt) return json_({ ok: false, error: 'text' });
+    var ms = memos_(props), was = ms.filter(function (m) { return m.id === mid; })[0];
+    if (!was && ms.length >= 300) return json_({ ok: false, error: 'too_many' });
+    if (was && was.date !== mdate) props.deleteProperty('memo_' + was.date + '_' + mid);
+    props.setProperty('memo_' + mdate + '_' + mid, JSON.stringify({ id: mid, date: mdate, t: mt, at: was ? was.at : new Date().toISOString() }));
+    return json_({ ok: true, memos: memos_(props).filter(function (m) { return !m.done; }) });
+  }
+  // 記録にした（done）・消す（delete）・未記録に戻す（open）
+  if (body.type === 'memoMark') {
+    var ids = (body.ids || []).map(String), nMark = 0;
+    memos_(props).forEach(function (m) {
+      if (ids.indexOf(m.id) < 0) return;
+      var mk = 'memo_' + m.date + '_' + m.id;
+      if (body.to === 'delete') props.deleteProperty(mk);
+      else if (body.to === 'done') { m.done = new Date().toISOString(); props.setProperty(mk, JSON.stringify(m)); }
+      else if (body.to === 'open') { delete m.done; props.setProperty(mk, JSON.stringify(m)); }
+      else return;
+      nMark++;
+    });
+    return json_({ ok: true, marked: nMark, memos: memos_(props).filter(function (m) { return !m.done; }) });
   }
   // セッションだけ（開いている間、1分おきに呼ばれる）
   if (body.type === 'sessions') return json_({ ok: true, sessions: sessions_(props) });
@@ -141,6 +168,19 @@ function doPost(e) {
     return json_({ ok: true, savedAt: body.links.savedAt });
   }
   return json_({ ok: false, error: 'type' });
+}
+
+// 記録にしたメモは14日で捨てる（本文は作業記録のファイルに入っている）
+function memos_(props) {
+  var all = props.getProperties(), list = [], old = new Date(Date.now() - 14 * 86400000).toISOString();
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf('memo_') !== 0) return;
+    var m = JSON.parse(all[k]);
+    if (m.done && m.done < old) { props.deleteProperty(k); return; }
+    list.push(m);
+  });
+  list.sort(function (a, b) { return a.date === b.date ? (a.at < b.at ? -1 : 1) : (a.date < b.date ? -1 : 1); });
+  return list;
 }
 
 function hidden_(props) {

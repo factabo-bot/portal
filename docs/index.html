@@ -41,6 +41,14 @@
       </div>
       <div id="wishes"><div class="muted">読み込み中…</div></div>
     </div>
+    <div class="card" id="memo-card">
+      <h2>研修の作業記録 <span class="sub" id="memo-count"></span><a class="btn small ghost h2r" href="https://factabo-bot.github.io/tomato-farm-manager/app/" target="_blank" rel="noopener">列を入れる</a></h2>
+      <form id="memo-form">
+        <textarea id="memo-text" rows="3" maxlength="2500" placeholder="平川 収穫→出荷調整。気づいたことを何回かに分けて入れてよい"></textarea>
+        <div class="memo-row"><input id="memo-date" type="date" aria-label="作業した日"><button type="button" class="btn small ghost" id="memo-cancel" hidden>やめる</button><button class="btn" id="memo-add">メモに足す</button></div>
+      </form>
+      <div id="memos"></div>
+    </div>
     <div class="card" id="ev-card">
       <h2>予定</h2>
       <div id="events"><div class="muted">読み込み中…</div></div>

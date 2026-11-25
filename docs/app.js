@@ -148,6 +148,8 @@ function renderRemote(j) {
   }
   // セッション（と、新しく開く先を決める使用量）
   if ('sessions' in j) { lastQuota = (j.sessions && j.sessions.quota) || null; renderSessions(j.sessions); }
+  // 研修の作業記録メモ
+  if (Array.isArray(j.memos)) { memos = j.memos; renderMemos(); }
   // やりたいこと
   if (Array.isArray(j.wishes)) { wishes = j.wishes; renderWishes(); }
   // 家計・株価
@@ -917,6 +919,93 @@ $('#install').addEventListener('click', async () => {
 window.addEventListener('appinstalled', () => { $('#install').hidden = true; });
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+// ---------- 研修の作業記録（メモをためて、Claude が1日分の記録にまとめる）----------
+let memos = [];
+let memoEdit = null;   // 直しているメモのID
+let memoNewId = null;  // 送り直しても二重にならないよう、保存できるまで同じIDを使う
+const MEMO_DRAFT = 'portal-memo-draft';
+const hexId = () => [...crypto.getRandomValues(new Uint8Array(4))].map((b) => b.toString(16).padStart(2, '0')).join('');
+function memoPrompt(date, n) {
+  return `研修の作業記録を作ってください（farm-diary-text スキル、対象日 ${date}）。ポータルの作業記録メモ${n}件と、アプリのその日の記録を読んで始めてください。`;
+}
+function renderMemos() {
+  $('#memo-count').textContent = memos.length ? `まだ記録にしていないメモ ${memos.length}件` : '';
+  const days = [...new Set(memos.map((m) => m.date))].sort().reverse();
+  $('#memos').innerHTML = days.map((d) => {
+    const list = memos.filter((m) => m.date === d);
+    const wd = WD[new Date(d.replace(/-/g, '/')).getDay()];
+    const prompt = memoPrompt(d, list.length);
+    let go;
+    if (PHONE) go = `<button type="button" class="btn small" data-mcopy="${esc(d)}">文をコピーしてClaudeを開く</button>`;
+    else {
+      const a = chooseApp().app, b = a === 'VS Code' ? 'デスクトップ' : 'VS Code';
+      go = `<a class="btn small" href="${esc(newUrl(a, prompt))}" title="${esc(quotaText(a))}">Claudeで記録にする（${a}）</a><a class="slink" href="${esc(newUrl(b, prompt))}" title="${esc(quotaText(b))}">${b}で</a>`;
+    }
+    return `<div class="mday"><div class="mday-h"><b>${md(d)}（${wd}）</b>${go}</div>${list.map((m) => `<div class="mitem"><div class="mtext">${esc(m.t)}</div>
+      <span class="mops"><button type="button" class="btn small ghost" data-medit="${esc(m.id)}">直す</button><button type="button" class="btn small ghost" data-mdel="${esc(m.id)}">消す</button></span></div>`).join('')}</div>`;
+  }).join('');
+}
+function putMemos(list) {
+  memos = list;
+  const cached = load(LS.remote, null);
+  if (cached) save(LS.remote, { ...cached, memos: list });
+  renderMemos();
+}
+function memoReset() {
+  memoEdit = null; memoNewId = null;
+  $('#memo-text').value = ''; $('#memo-date').value = today();
+  $('#memo-add').textContent = 'メモに足す'; $('#memo-cancel').hidden = true;
+  save(MEMO_DRAFT, null);
+}
+$('#memo-date').value = today();
+$('#memo-text').value = (load(MEMO_DRAFT, null) || {}).t || '';
+if ((load(MEMO_DRAFT, null) || {}).d) $('#memo-date').value = load(MEMO_DRAFT, null).d;
+// 書きかけは端末に残す（電波がなくても消えない）
+$('#memo-form').addEventListener('input', () => { if (!memoEdit) save(MEMO_DRAFT, $('#memo-text').value ? { t: $('#memo-text').value, d: $('#memo-date').value } : null); });
+$('#memo-cancel').addEventListener('click', memoReset);
+$('#memo-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = $('#memo-text').value.trim(), date = $('#memo-date').value || today();
+  if (!text) return;
+  if (!cfg.url) { setStatus('窓口が未設定です'); return; }
+  const id = memoEdit || memoNewId || (memoNewId = hexId());
+  $('#memo-add').disabled = true;
+  setStatus('メモを保存中…');
+  try {
+    const j = await post({ type: 'memoSave', id, date, text });
+    if (!j.ok) throw new Error(j.error);
+    putMemos(j.memos); memoReset(); setStatus('');
+  } catch { setStatus('メモを保存できませんでした。書いた文は残っています。もう一度押してください'); }
+  $('#memo-add').disabled = false;
+});
+$('#memos').addEventListener('click', async (e) => {
+  const ed = e.target.closest('[data-medit]'), del = e.target.closest('[data-mdel]'), copy = e.target.closest('[data-mcopy]');
+  if (ed) {
+    const m = memos.find((x) => x.id === ed.dataset.medit);
+    if (!m) return;
+    memoEdit = m.id;
+    $('#memo-text').value = m.t; $('#memo-date').value = m.date;
+    $('#memo-add').textContent = '直して保存'; $('#memo-cancel').hidden = false;
+    $('#memo-text').focus();
+    return;
+  }
+  if (del) {
+    if (del.dataset.sure !== '1') { del.dataset.sure = '1'; del.textContent = '本当に消す'; return; }
+    del.disabled = true;
+    try {
+      const j = await post({ type: 'memoMark', ids: [del.dataset.mdel], to: 'delete' });
+      if (!j.ok) throw new Error(j.error);
+      if (memoEdit === del.dataset.mdel) memoReset();
+      putMemos(j.memos);
+    } catch { del.disabled = false; setStatus('消せませんでした'); }
+    return;
+  }
+  if (copy) {
+    const n = memos.filter((m) => m.date === copy.dataset.mcopy).length;
+    navigator.clipboard.writeText(memoPrompt(copy.dataset.mcopy, n)).then(() => { location.href = 'https://claude.ai/code'; }, () => setStatus('コピーできませんでした'));
+  }
+});
 
 // ---------- 起動 ----------
 renderDate();
