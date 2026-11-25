@@ -9,13 +9,16 @@ const LS = {
 };
 const LAT = 35.56, LON = 140.18; // 千葉市緑区あたり
 
+// 使っていない試作アプリ（farm-work-log）の説明ページに飛んでいたので、このページの作業記録の欄へ向ける（本人 11/25）
+const MEMO_URL = 'https://factabo-bot.github.io/portal/#memo-card';
+const fixLinks = (x) => { for (const g of x.sections) for (const l of g.links) if (/^https:\/\/factabo-bot\.github\.io\/farm-work-log\/?$/.test(l.url)) { l.url = MEMO_URL; l.name = '研修の作業記録'; } return x; };
 const DEFAULT_LINKS = {
   sections: [
     { title: '自作アプリ', links: [
       { name: 'トマト栽培管理', url: 'https://factabo-bot.github.io/tomato-farm-manager/app/' },
       { name: "Eri's Routine", url: 'https://factabo-bot.github.io/routine-board/' },
       { name: 'ベランダ潅水', url: 'https://factabo-bot.github.io/kansui/' },
-      { name: '研修先の作業記録', url: 'https://factabo-bot.github.io/farm-work-log/' },
+      { name: '研修の作業記録', url: MEMO_URL },
     ]},
     { title: 'よく使うサイト', links: [
       { name: 'Gmail', url: 'https://mail.google.com/' },
@@ -34,7 +37,7 @@ const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } cat
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 let cfg = load(LS.cfg, {});
-let links = load(LS.links, null) || DEFAULT_LINKS;
+let links = fixLinks(load(LS.links, null) || DEFAULT_LINKS);
 let editing = null; // 編集中の下書き
 
 // ---------- 設定用リンク（#setup=URL|合言葉）----------
@@ -101,7 +104,7 @@ async function loadRemote() {
     save(LS.remote, j);
     if (j.links && !editing) {
       const localAt = links.savedAt || '';
-      if (!localAt || (j.links.savedAt || '') >= localAt) { links = j.links; save(LS.links, links); renderLinks(); }
+      if (!localAt || (j.links.savedAt || '') >= localAt) { links = fixLinks(j.links); save(LS.links, links); renderLinks(); }
     }
     renderRemote(j);
     setStatus('');
@@ -1041,6 +1044,17 @@ $('#memos').addEventListener('click', async (e) => {
     copyAndOpenClaude(memoPrompt(copy.dataset.mcopy, n));
   }
 });
+
+// 「研修の作業記録」のアイコン：欄まで動いて、すぐ書ける状態にする
+function goMemo() {
+  $('#memo-card').scrollIntoView({ block: 'start' });
+  $('#memo-text').focus({ preventScroll: true });
+}
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('a[href]');
+  if (a && a.href === MEMO_URL && !e.ctrlKey && !e.metaKey) { e.preventDefault(); goMemo(); }
+});
+if (location.hash === '#memo-card') setTimeout(goMemo, 300);
 
 // ---------- 起動 ----------
 renderDate();
