@@ -216,6 +216,18 @@ function phoneLink(rc, acct) {
   return { url: `intent://claude.ai/code/session_${rc}#Intent;scheme=https;package=com.android.chrome;end`, attr: '', via: 'Chromeで開く' };
 }
 
+// 会話そのものを開けないとき：新しい会話に前の会話を読ませて続ける（PCの handoff.py が要約と最後のやり取りを出す）
+function handoffPrompt(id, title) {
+  return `前の会話「${title}」の続きをしたい。まず python C:/Users/facta/projects/portal/watcher/handoff.py ${id} を実行して前の会話の要約と最後のやり取りを読み、関係する記憶も確かめて、どこまで来ているかと次の一歩を短く示してください。`;
+}
+function copyAndOpenClaude(text) {
+  navigator.clipboard.writeText(text).then(() => { setStatus('文をコピーしました。「obsidian」を選び、貼って送ってください'); location.href = 'https://claude.ai/code'; }, () => setStatus('コピーできませんでした'));
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-hand]');
+  if (b) copyAndOpenClaude(handoffPrompt(b.dataset.hand, b.dataset.title));
+});
+
 function renderSessions(data) {
   const el = $('#sessions');
   if (!data) { el.innerHTML = '<div class="muted">まだ届いていません（PCの見回り役が未起動）</div>'; return; }
@@ -225,7 +237,9 @@ function renderSessions(data) {
     const { app: appUrl, web } = sessionLinks(s);
     const ph = PHONE ? phoneLink(s.rc, s.acct) : null;
     const main = PHONE ? (ph ? ph.url : '') : (appUrl || web);
-    const sub = PHONE ? (ph ? (ph.via ? `<span>${esc(ph.via)}</span>` : '') : '<span>PCで開けます</span>') : appUrl && web ? `<a class="slink" href="${esc(web)}" target="_blank" rel="noopener noreferrer">ブラウザで</a>` : '';
+    const sub = PHONE ? (ph ? (ph.via ? `<span>${esc(ph.via)}</span>` : '') : '') : appUrl && web ? `<a class="slink" href="${esc(web)}" target="_blank" rel="noopener noreferrer">ブラウザで</a>` : '';
+    // スマホで会話を開けない・別アカウントのときは、新しい会話で続ける（作業中は同じ物を2つで触らないよう出さない）
+    const hand = PHONE && s.state !== 'work' && (!ph || ph.via) ? `<button type="button" class="btn small ghost shide" data-hand="${esc(s.id)}" data-title="${esc(s.title)}">新しい会話で続ける</button>` : '';
     const label = s.hide ? '済み' : s.state === 'ask' && s.seen ? '見た・返事まだ' : ST[s.state] || '';
     const body = `<div class="sline"><span class="badge">${label}</span><span class="stitle">${esc(s.title)}</span></div>
       ${s.q ? `<div class="sq">${esc(s.q)}</div>` : ''}`;
@@ -233,7 +247,7 @@ function renderSessions(data) {
       : s.hide ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" data-undo="1">戻す</button>` : '';
     return `<div class="srow st-${s.hide ? 'done' : s.state === 'ask' && s.seen ? 'seen' : esc(s.state)}">
       ${main ? `<a class="sbody" href="${esc(main)}"${ph ? ph.attr : main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
-      <div class="meta">${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub} ${switchHtml(s)}${btn}</div></div>`;
+      <div class="meta">${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub} ${switchHtml(s)}${hand}${btn}</div></div>`;
   };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
   const sorted = [...list].sort((a, b) => b.at - a.at);
@@ -360,8 +374,8 @@ function pickHtml(w, t) {
     const ph = PHONE ? phoneLink(x.rc, x.acct) : null;
     const url = PHONE ? (ph ? ph.url : '') : continueUrl(x, `続き：やりたいこと「${w.text}」${task ? `の作業「${task}」` : ''}を進めよう`);
     const tight = quotaTight(x.app) ? '・<span class="ptight">枠が残りわずか</span>' : '';
-    const inner = `<span class="pn">${esc(x.t)}</span><span class="meta">${esc(x.app)}${x.d ? '・' + md(x.d) : ''}${tight}${url ? (ph && ph.via ? '・' + esc(ph.via) : '') : '・PCで開けます'}</span>`;
-    return (url ? `<a class="pbtn" href="${esc(url)}"${ph ? ph.attr : ''}>${inner}</a>` : `<div class="pbtn off">${inner}</div>`) + (switchTo(x) ? `<div class="meta psw">${switchHtml(x)}</div>` : '');
+    const inner = `<span class="pn">${esc(x.t)}</span><span class="meta">${esc(x.app)}${x.d ? '・' + md(x.d) : ''}${tight}${url ? (ph && ph.via ? '・' + esc(ph.via) : '') : '・新しい会話で続ける（文をコピー）'}</span>`;
+    return (url ? `<a class="pbtn" href="${esc(url)}"${ph ? ph.attr : ''}>${inner}</a>` : `<button type="button" class="pbtn" data-hand="${esc(x.cli || x.open)}" data-title="${esc(x.t)}">${inner}</button>`) + (switchTo(x) ? `<div class="meta psw">${switchHtml(x)}</div>` : '');
   }).join('');
   let fresh;
   if (PHONE) {
@@ -394,7 +408,7 @@ $('#wishes').addEventListener('click', (e) => {
   const copy = e.target.closest('[data-pcopy]');
   if (copy) {
     const { w, t } = copy.closest('.pick')._pick;
-    navigator.clipboard.writeText(companionPrompt(w, t ? t.t : '')).then(() => { setStatus('文をコピーしました'); location.href = 'https://claude.ai/code'; }, () => setStatus('コピーできませんでした'));
+    copyAndOpenClaude(companionPrompt(w, t ? t.t : ''));
   }
 });
 
@@ -1024,7 +1038,7 @@ $('#memos').addEventListener('click', async (e) => {
   }
   if (copy) {
     const n = memos.filter((m) => m.date === copy.dataset.mcopy).length;
-    navigator.clipboard.writeText(memoPrompt(copy.dataset.mcopy, n)).then(() => { location.href = 'https://claude.ai/code'; }, () => setStatus('コピーできませんでした'));
+    copyAndOpenClaude(memoPrompt(copy.dataset.mcopy, n));
   }
 });
 
