@@ -213,7 +213,7 @@ let phoneAcct = load(ACCT_KEY, 'アカウントA');
 function phoneLink(rc, acct) {
   if (!RE_RC.test(rc || '')) return null;
   if (!acct || acct === phoneAcct) return { url: `https://claude.ai/code/session_${rc}`, attr: ' target="_blank" rel="noopener noreferrer"', via: '' };
-  return { url: `intent://claude.ai/code/session_${rc}#Intent;scheme=https;package=com.android.chrome;end`, attr: '', via: `Chromeで開く（${acct}）` };
+  return { url: `intent://claude.ai/code/session_${rc}#Intent;scheme=https;package=com.android.chrome;end`, attr: '', via: 'Chromeで開く' };
 }
 
 function renderSessions(data) {
