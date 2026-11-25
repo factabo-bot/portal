@@ -154,7 +154,7 @@ def read_session(path):
 
 
 def desktop_index():
-    """デスクトップアプリの管理ファイルから、記録のID → (アプリ内のID, アーカイブ済みか, アカウント, 最後に開いた時刻)"""
+    """デスクトップアプリの管理ファイルから、記録のID → (アプリ内のID, アーカイブ済みか, アカウント, 最後に開いた時刻, スマホ用のID)"""
     idx = {}
     if not DESKTOP_SESSIONS.exists():
         return idx
@@ -169,7 +169,7 @@ def desktop_index():
         cli = d.get("cliSessionId")
         if cli:
             idx[cli] = (d.get("sessionId", ""), bool(d.get("isArchived")), p.parent.parent.name,
-                        (d.get("lastFocusedAt") or 0) / 1000)
+                        (d.get("lastFocusedAt") or 0) / 1000, (d.get("bridgeSessionIds") or [""])[-1])
     return idx
 
 
@@ -259,6 +259,9 @@ def collect():
         }
         if f["entry"] == "claude-desktop":
             s["cli"] = p.stem          # もう片方（VS Code）で開くための記録のID
+            # スマホ用のIDもアプリの管理情報が正（切り替えた会話の記録には、前のアプリのIDが残る）
+            b = dinfo[4] if dinfo else ""
+            s["rc"] = b.split("_", 1)[1] if "_" in b else ""
         if st == "ask" and dinfo and dinfo[3] > f["at"] + 5:   # 質問のあとに本人が開いた（返事はまだ）
             s["seen"] = 1
         out.append(s)

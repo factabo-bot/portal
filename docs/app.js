@@ -206,6 +206,16 @@ function switchHtml(s) {
   return sw ? `<a class="slink" href="${esc(sw.url)}" title="${esc(`${sw.app}で続きを開く。${quotaText(sw.app)}。開いたら、元のアプリの方では送らない`)}">${sw.app}に切り替え${quotaTight(sw.app) ? '（枠わずか）' : ''}</a>` : '';
 }
 
+// スマホ：Claudeアプリは1つのアカウントでしか開けない（別のアカウントの会話は「利用できません」になる。11/25 実機）。
+// アプリと同じアカウントの会話はアプリで、違う会話は Chrome（そのアカウントで claude.ai にログインしておく）で開く
+const ACCT_KEY = 'portal-phone-acct';
+let phoneAcct = load(ACCT_KEY, 'アカウントA');
+function phoneLink(rc, acct) {
+  if (!RE_RC.test(rc || '')) return null;
+  if (!acct || acct === phoneAcct) return { url: `https://claude.ai/code/session_${rc}`, attr: ' target="_blank" rel="noopener noreferrer"', via: '' };
+  return { url: `intent://claude.ai/code/session_${rc}#Intent;scheme=https;package=com.android.chrome;end`, attr: '', via: `Chromeで開く（${acct}）` };
+}
+
 function renderSessions(data) {
   const el = $('#sessions');
   if (!data) { el.innerHTML = '<div class="muted">まだ届いていません（PCの見回り役が未起動）</div>'; return; }
@@ -213,15 +223,16 @@ function renderSessions(data) {
   const waiting = (x) => (x.state === 'ask' || x.state === 'stuck') && !x.hide;
   const row = (s) => {
     const { app: appUrl, web } = sessionLinks(s);
-    const main = PHONE ? (web || appUrl) : (appUrl || web);
-    const sub = !PHONE && appUrl && web ? `<a class="slink" href="${esc(web)}" target="_blank" rel="noopener noreferrer">ブラウザで</a>` : '';
+    const ph = PHONE ? phoneLink(s.rc, s.acct) : null;
+    const main = PHONE ? (ph ? ph.url : '') : (appUrl || web);
+    const sub = PHONE ? (ph ? (ph.via ? `<span>${esc(ph.via)}</span>` : '') : '<span>PCで開けます</span>') : appUrl && web ? `<a class="slink" href="${esc(web)}" target="_blank" rel="noopener noreferrer">ブラウザで</a>` : '';
     const label = s.hide ? '済み' : s.state === 'ask' && s.seen ? '見た・返事まだ' : ST[s.state] || '';
     const body = `<div class="sline"><span class="badge">${label}</span><span class="stitle">${esc(s.title)}</span></div>
       ${s.q ? `<div class="sq">${esc(s.q)}</div>` : ''}`;
     const btn = waiting(s) ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" title="もう返事がいらない会話を下げる（新しいやり取りがあればまた出ます）">済みにする</button>`
       : s.hide ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" data-undo="1">戻す</button>` : '';
     return `<div class="srow st-${s.hide ? 'done' : s.state === 'ask' && s.seen ? 'seen' : esc(s.state)}">
-      ${main ? `<a class="sbody" href="${esc(main)}"${main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
+      ${main ? `<a class="sbody" href="${esc(main)}"${ph ? ph.attr : main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
       <div class="meta">${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub} ${switchHtml(s)}${btn}</div></div>`;
   };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
@@ -233,7 +244,8 @@ function renderSessions(data) {
   const stale = Date.now() - at.getTime() > 90 * 60000;
   el.innerHTML = (head.length ? head.map(row).join('') : '<div class="muted">48時間以内のセッションはありません</div>')
     + (rest.length ? `<details class="sdone"><summary>ほか ${rest.length}件（返事済み・済み、48時間以内）</summary>${rest.map(row).join('')}</details>` : '')
-    + `<div class="supd${stale ? ' stale' : ''}">PCから ${at.getMonth() + 1}/${at.getDate()} ${hm(at)} に更新${stale ? '（PCが止まっているかもしれません）' : ''}</div>`;
+    + `<div class="supd${stale ? ' stale' : ''}">PCから ${at.getMonth() + 1}/${at.getDate()} ${hm(at)} に更新${stale ? '（PCが止まっているかもしれません）' : ''}</div>`
+    + (PHONE ? `<div class="supd">このスマホのClaudeアプリ：${esc(phoneAcct)} <button type="button" class="btn small ghost" data-acct>変える</button></div>` : '');
 }
 
 // セッションだけ読み直す（開いている間は1分おき）
@@ -256,6 +268,14 @@ async function loadSessions() {
 setInterval(loadSessions, 60000);
 window.addEventListener('focus', loadSessions);
 $('#sessions').addEventListener('click', async (ev) => {
+  if (ev.target.closest('[data-acct]')) {
+    const d = load(LS.remote, {}).sessions;
+    const all = [...new Set([...((d && d.sessions) || []).map((x) => x.acct).filter(Boolean), 'アカウントA', 'アカウントB'])].sort();
+    phoneAcct = all[(all.indexOf(phoneAcct) + 1) % all.length];
+    save(ACCT_KEY, phoneAcct);
+    renderSessions(d); renderWishes();
+    return;
+  }
   const b = ev.target.closest('[data-shide]');
   if (!b) return;
   const s = ((load(LS.remote, {}).sessions || {}).sessions || []).find((x) => x.id === b.dataset.shide);
@@ -331,16 +351,17 @@ function continueList(w, t) {
   const seen = new Set();
   return [...own, ...ses].filter((x) => continueUrl(x, '') && !seen.has(x.open) && seen.add(x.open)).slice(0, 3).map((x) => {
     const l = live.find((y) => y.open === x.open);
-    return { ...x, cli: l && l.cli, state: l && l.state, t: (l && l.title) || x.t || 'この作業の会話', rc: l && RE_RC.test(l.rc || '') ? l.rc : '' };
+    return { ...x, cli: l && l.cli, state: l && l.state, acct: l && l.acct, t: (l && l.title) || x.t || 'この作業の会話', rc: l && RE_RC.test(l.rc || '') ? l.rc : '' };
   });
 }
 function pickHtml(w, t) {
   const task = t ? t.t : '';
   const cont = continueList(w, t).map((x) => {
-    const url = PHONE ? (x.rc ? `https://claude.ai/code/session_${x.rc}` : '') : continueUrl(x, `続き：やりたいこと「${w.text}」${task ? `の作業「${task}」` : ''}を進めよう`);
+    const ph = PHONE ? phoneLink(x.rc, x.acct) : null;
+    const url = PHONE ? (ph ? ph.url : '') : continueUrl(x, `続き：やりたいこと「${w.text}」${task ? `の作業「${task}」` : ''}を進めよう`);
     const tight = quotaTight(x.app) ? '・<span class="ptight">枠が残りわずか</span>' : '';
-    const inner = `<span class="pn">${esc(x.t)}</span><span class="meta">${esc(x.app)}${x.d ? '・' + md(x.d) : ''}${tight}${url ? '' : '・PCで開けます'}</span>`;
-    return (url ? `<a class="pbtn" href="${esc(url)}"${PHONE ? ' target="_blank" rel="noopener noreferrer"' : ''}>${inner}</a>` : `<div class="pbtn off">${inner}</div>`) + (switchTo(x) ? `<div class="meta psw">${switchHtml(x)}</div>` : '');
+    const inner = `<span class="pn">${esc(x.t)}</span><span class="meta">${esc(x.app)}${x.d ? '・' + md(x.d) : ''}${tight}${url ? (ph && ph.via ? '・' + esc(ph.via) : '') : '・PCで開けます'}</span>`;
+    return (url ? `<a class="pbtn" href="${esc(url)}"${ph ? ph.attr : ''}>${inner}</a>` : `<div class="pbtn off">${inner}</div>`) + (switchTo(x) ? `<div class="meta psw">${switchHtml(x)}</div>` : '');
   }).join('');
   let fresh;
   if (PHONE) {
