@@ -146,7 +146,7 @@ a { color: inherit; }
 
 /* 編集 */
 .edit-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto; gap: 6px; margin-bottom: 6px; align-items: center; }
-.edit-row input, .sec-title-input, dialog input {
+.edit-row input, .sec-title-input, dialog input, dialog select {
   width: 100%; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg);
 }
 .edit-row .ops { display: flex; gap: 4px; }
@@ -182,7 +182,7 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .sq { font-size: .85rem; margin-top: 2px; }
 .srow .meta, .supd { color: var(--muted); font-size: .78rem; }
 .supd { margin-top: 8px; }
-.supd.stale { color: var(--accent); }
+.supd.stale, .supd .stale { color: var(--accent); }
 .sgroup { font-size: .8rem; color: var(--muted); margin: 10px 0 2px; }
 .sdone { margin-top: 8px; }
 .sdone summary { cursor: pointer; font-size: .85rem; color: var(--muted); }

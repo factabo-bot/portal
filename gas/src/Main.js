@@ -5,10 +5,12 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 21;
+var VERSION = 22;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
-var SESSIONS_KEY = 'portal_sessions';
+var SESSIONS_KEY = 'portal_sessions';        // 旧：1台分だけ（11/27まで）。今は portal_sessions_<PC名> に1台ずつ
+var SESSIONS_PREFIX = 'portal_sessions_';
+var SESSION_PC_TTL = 72 * 3600 * 1000;        // 72時間送ってこないPCの分は捨てる
 var SESSION_HIDE_KEY = 'portal_session_hide';   // 「済みにする」を押した会話 {id: その時点の最後の会話の時刻}
 
 function doGet(e) {
@@ -31,9 +33,11 @@ function doPost(e) {
     });
     var voice = {};   // まだ文字起こししていない音声の数 {日付: 件数}
     Object.keys(body.voice || {}).slice(0, 14).forEach(function (d) { if (/^\d{4}-\d{2}-\d{2}$/.test(d)) voice[d] = Math.max(0, Math.floor(Number(body.voice[d]) || 0)); });
-    var s = JSON.stringify({ voice: voice, at: new Date().toISOString(), host: String(body.host || '').slice(0, 30), sessions: (body.sessions || []).slice(0, 30), quota: quota });
+    var host = String(body.host || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 30) || 'unknown';
+    var s = JSON.stringify({ voice: voice, at: new Date().toISOString(), host: host, sessions: (body.sessions || []).slice(0, 30), quota: quota });
     if (s.length > 8500) return json_({ ok: false, error: 'too_large' });
-    props.setProperty(SESSIONS_KEY, s);
+    props.setProperty(SESSIONS_PREFIX + host, s);   // PCごとに置く（2台から送っても上書きし合わない）
+    props.deleteProperty(SESSIONS_KEY);
     return json_({ ok: true });
   }
 
@@ -213,12 +217,30 @@ function hidden_(props) {
   return h;
 }
 
+// 全PCの分を合わせて返す。各セッションに host を付け、新しい順で20件まで
 function sessions_(props) {
-  var ses = props.getProperty(SESSIONS_KEY);
-  if (!ses) return null;
-  var data = JSON.parse(ses), h = hidden_(props);
-  data.sessions.forEach(function (s) { if (h[s.id] >= s.at) s.hide = 1; });
-  return data;
+  var all = props.getProperties(), now = Date.now(), pcs = [];
+  Object.keys(all).forEach(function (k) {
+    if (k.indexOf(SESSIONS_PREFIX) !== 0 && k !== SESSIONS_KEY) return;
+    var d;
+    try { d = JSON.parse(all[k]); } catch (err) { return; }
+    if (now - new Date(d.at).getTime() > SESSION_PC_TTL) { props.deleteProperty(k); return; }
+    d.host = String(d.host || '').replace(/[^A-Za-z0-9-]/g, '').slice(0, 30) || 'unknown';
+    pcs.push(d);
+  });
+  if (!pcs.length) return null;
+  var h = hidden_(props), list = [], quota = {}, voice = {}, voiceAt = '', at = '';
+  pcs.forEach(function (d) {
+    (d.sessions || []).forEach(function (s) { s.host = d.host; if (h[s.id] >= s.at) s.hide = 1; list.push(s); });
+    Object.keys(d.quota || {}).forEach(function (k) { if (!quota[k] || d.quota[k].at > quota[k].at) quota[k] = d.quota[k]; });
+    if (Object.keys(d.voice || {}).length && d.at > voiceAt) { voice = d.voice; voiceAt = d.at; }   // 音声の数は送ってきたPCの新しい方
+    if (d.at > at) at = d.at;
+  });
+  list.sort(function (a, b) { return b.at - a.at; });
+  return {
+    at: at, voice: voice, quota: quota, sessions: list.slice(0, 20),
+    hosts: pcs.map(function (d) { return { host: d.host, at: d.at }; }).sort(function (a, b) { return a.at < b.at ? 1 : -1; })
+  };
 }
 
 function wishes_(props) {

@@ -317,6 +317,28 @@ def voices():
     return out
 
 
+def summarize_on():
+    try:
+        return json.loads(CFG.read_text(encoding="utf-8")).get("summarize", True) is not False
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def git_pull():
+    """git pull --ff-only。失敗しても見回りは止めず、ログに残すだけ"""
+    import shutil
+    import subprocess
+    git = shutil.which("git") or r"C:\Program Files\Git\cmd\git.exe"
+    try:
+        r = subprocess.run([git, "-C", str(HERE.parent), "pull", "--ff-only", "-q"], capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=90,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if r.returncode != 0:
+            log("git pull error: " + (r.stderr or r.stdout).strip()[:300])
+    except Exception as e:  # noqa: BLE001
+        log("git pull error: " + repr(e)[:300])
+
+
 def main():
     cfg = json.loads(CFG.read_text(encoding="utf-8"))
     sessions = collect()
@@ -348,9 +370,12 @@ if __name__ == "__main__":
             main()
     except Exception as e:  # noqa: BLE001
         log("error: " + repr(e)[:300])
+    # 10分に1回、最新のコードをもらう（2台のどちらで直しても、もう片方が古いまま動き続けないように）
+    if "--dry" not in sys.argv and time.localtime().tm_min % 10 == 0:
+        git_pull()
     # ひと区切りついたセッションを要約する（やりたいことの見立ての材料。1回に最大3件）
-    # 見回りは1分おき、要約は5分に1回
-    if "--dry" not in sys.argv and time.localtime().tm_min % 5 == 0:
+    # 見回りは1分おき、要約は5分に1回。家のPCだけで動かす（.local.json に "summarize": false があれば飛ばす）
+    if "--dry" not in sys.argv and time.localtime().tm_min % 5 == 0 and summarize_on():
         try:
             import summarize
             summarize.run(3, log=log)

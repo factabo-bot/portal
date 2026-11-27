@@ -92,6 +92,10 @@
     <label>窓口のURL<input id="setup-url" type="url" autocomplete="off"></label>
     <label>合言葉<input id="setup-key" type="text" autocomplete="off"></label>
     <label>お金の合言葉（経費の振り分け・保有資産。この端末で使うときだけ）<input id="setup-keihi" type="text" autocomplete="off"></label>
+    <label>このPCの名前（ほかのPCの会話を開けるか分けるのに使う。この端末だけに保存）<select id="setup-pc">
+      <option value="">家のPC（未設定のときも家のPCとみなす）</option>
+      <option value="DESKTOP-MUU2JN2">ノートPC</option>
+    </select></label>
     <label class="chk"><input type="checkbox" id="qr-keihi"> QRにお金の合言葉も入れる</label>
     <div id="qr" class="qr" hidden></div>
     <div class="row-end">

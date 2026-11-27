@@ -45,7 +45,7 @@ let editing = null; // 編集中の下書き
   const m = location.hash.match(/^#setup=(.+)$/);
   if (!m) return;
   const [url, key, keihi] = decodeURIComponent(m[1]).split('|');
-  if (url && key) { cfg = { url, key, keihi: keihi || load(LS.cfg, {}).keihi || '' }; save(LS.cfg, cfg); }
+  if (url && key) { const old = load(LS.cfg, {}); cfg = { url, key, keihi: keihi || old.keihi || '', pc: old.pc || '' }; save(LS.cfg, cfg); }
   history.replaceState(null, '', location.pathname);
 })();
 
@@ -190,6 +190,14 @@ const PHONE = matchMedia('(pointer: coarse)').matches;
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const RE_LOCAL = /^local_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const RE_RC = /^[A-Za-z0-9]{10,40}$/;
+// 見回り役を置いたPC（PC名 → 画面での呼び名）。家のPC以外のセッションには呼び名を小さく出す
+const HOME_PC = 'Ben';
+const PC_NAMES = { Ben: '家のPC', 'DESKTOP-MUU2JN2': 'ノートPC' };
+const pcName = (h) => PC_NAMES[h] || h || '';
+// この端末がどのPCか（窓口の設定で端末ごとに保存。スマホ・未設定は家のPCとみなす）
+const myPc = () => (PHONE ? '' : cfg.pc || HOME_PC);
+// ほかのPCの会話か（そのPCのアプリでしか開けない）
+const otherPc = (s) => !PHONE && !!s.host && s.host !== myPc();
 function sessionLinks(s) {
   let app = '';
   if (s.app === 'VS Code' && RE_UUID.test(s.open || '')) app = `vscode://anthropic.claude-code/open?session=${s.open}`;
@@ -200,7 +208,7 @@ function sessionLinks(s) {
 
 // もう片方のアプリで開く（会話の記録は同じファイルなので、続きからそのまま話せる）。作業中は両方で書き合うので出さない
 function switchTo(s) {
-  if (PHONE || s.state === 'work') return null;
+  if (PHONE || s.state === 'work' || otherPc(s)) return null;
   if (s.app === 'VS Code' && RE_UUID.test(s.open || '')) return { app: 'デスクトップ', url: `claude://resume?session=${s.open}` };
   if (s.app === 'デスクトップ' && RE_UUID.test(s.cli || '')) return { app: 'VS Code', url: `vscode://anthropic.claude-code/open?session=${s.cli}` };
   return null;
@@ -238,12 +246,14 @@ function renderSessions(data) {
   const list = data.sessions || [];
   const waiting = (x) => (x.state === 'ask' || x.state === 'stuck') && !x.hide;
   const row = (s) => {
-    const { app: appUrl, web } = sessionLinks(s);
+    const { app: appUrl0, web } = sessionLinks(s);
+    const away = otherPc(s);
+    const appUrl = away ? '' : appUrl0;   // ほかのPCの会話は、このPCのアプリでは開けない
     const ph = PHONE ? phoneLink(s.rc, s.acct) : null;
     const main = PHONE ? (ph ? ph.url : '') : (appUrl || web);
     const sub = PHONE ? (ph ? (ph.via ? `<span>${esc(ph.via)}</span>` : '') : '') : appUrl && web ? `<a class="slink" href="${esc(web)}" target="_blank" rel="noopener noreferrer">ブラウザで</a>` : '';
     // スマホで会話を開けない・別アカウントのときは、新しい会話で続ける（作業中は同じ物を2つで触らないよう出さない）
-    const hand = PHONE && s.state !== 'work' && (!ph || ph.via) ? `<button type="button" class="btn small ghost shide" data-hand="${esc(s.id)}" data-title="${esc(s.title)}">新しい会話で続ける</button>` : '';
+    const hand = PHONE && s.state !== 'work' && (!ph || ph.via) && (!s.host || s.host === HOME_PC) ? `<button type="button" class="btn small ghost shide" data-hand="${esc(s.id)}" data-title="${esc(s.title)}">新しい会話で続ける</button>` : '';
     const label = s.hide ? '済み' : s.state === 'ask' && s.seen ? '見た・返事まだ' : ST[s.state] || '';
     const body = `<div class="sline"><span class="badge">${label}</span><span class="stitle">${esc(s.title)}</span></div>
       ${s.q ? `<div class="sq">${esc(s.q)}</div>` : ''}`;
@@ -251,18 +261,22 @@ function renderSessions(data) {
       : s.hide ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" data-undo="1">戻す</button>` : '';
     return `<div class="srow st-${s.hide ? 'done' : s.state === 'ask' && s.seen ? 'seen' : esc(s.state)}">
       ${main ? `<a class="sbody" href="${esc(main)}"${ph ? ph.attr : main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
-      <div class="meta">${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub} ${switchHtml(s)}${hand}${btn}</div></div>`;
+      <div class="meta">${s.host && s.host !== HOME_PC ? esc(pcName(s.host)) + '・' : ''}${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub} ${switchHtml(s)}${away ? `<span class="slink">${esc(pcName(s.host))}で開いてください</span>` : ''}${hand}${btn}</div></div>`;
   };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
   const sorted = [...list].sort((a, b) => b.at - a.at);
   const urgent = (x) => x.state === 'work' || waiting(x);   // 質問あり・止まっている・作業中は全部出す
   const head = [], rest = [];
   for (const x of sorted) (urgent(x) || (!x.hide && head.filter((y) => !urgent(y)).length < 5) ? head : rest).push(x);
-  const at = new Date(data.at);
-  const stale = Date.now() - at.getTime() > 90 * 60000;
+  // 最終更新はPCごと（1台だけなら今までどおりの1行）
+  const pcs = data.hosts && data.hosts.length ? data.hosts : [{ host: data.host || '', at: data.at }];
+  const upd = pcs.map((p) => {
+    const t = new Date(p.at), old = Date.now() - t.getTime() > 90 * 60000;
+    return `<span class="${old ? 'stale' : ''}">${pcs.length > 1 ? esc(pcName(p.host)) + ' ' : 'PCから '}${t.getMonth() + 1}/${t.getDate()} ${hm(t)}${old ? '（止まっているかもしれません）' : ''}</span>`;
+  }).join('・');
   el.innerHTML = (head.length ? head.map(row).join('') : '<div class="muted">48時間以内のセッションはありません</div>')
     + (rest.length ? `<details class="sdone"><summary>ほか ${rest.length}件（返事済み・済み、48時間以内）</summary>${rest.map(row).join('')}</details>` : '')
-    + `<div class="supd${stale ? ' stale' : ''}">PCから ${at.getMonth() + 1}/${at.getDate()} ${hm(at)} に更新${stale ? '（PCが止まっているかもしれません）' : ''}</div>`
+    + `<div class="supd">${upd} に更新</div>`
     + (PHONE ? `<div class="supd">このスマホのClaudeアプリ：${esc(phoneAcct)} <button type="button" class="btn small ghost" data-acct>変える</button></div>` : '');
 }
 
@@ -900,6 +914,7 @@ document.addEventListener('click', (e) => {
   $('#setup-url').value = cfg.url || '';
   $('#setup-key').value = cfg.key || '';
   $('#setup-keihi').value = cfg.keihi || '';
+  $('#setup-pc').value = cfg.pc || '';
   $('#qr-keihi').checked = false;
   $('#setup').showModal();
 });
@@ -932,7 +947,7 @@ $('#setup').addEventListener('close', () => { $('#qr').hidden = true; $('#qr').i
 
 $('#setup-form').addEventListener('submit', (e) => {
   if (e.submitter && e.submitter.value === 'save') {
-    cfg = { url: $('#setup-url').value.trim(), key: $('#setup-key').value.trim(), keihi: $('#setup-keihi').value.trim() };
+    cfg = { url: $('#setup-url').value.trim(), key: $('#setup-key').value.trim(), keihi: $('#setup-keihi').value.trim(), pc: $('#setup-pc').value };
     renderKeihiCard();
     save(LS.cfg, cfg);
     loadRemote();
