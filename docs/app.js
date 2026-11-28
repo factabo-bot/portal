@@ -385,6 +385,13 @@ $('#sessions').addEventListener('click', async (ev) => {
 let wishes = [];
 let wishTab = 'open';
 let wishDropping = null; // 「やめた」の理由を入力中のID
+let wishQ = ''; // 検索語。入っている間は やりたい・やった・やめた をまたいで探す
+// 全角半角・大文字小文字・カタカナひらがなの違いを無視して比べる
+const normQ = (s) => String(s || '').normalize('NFKC').toLowerCase().replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
+function wishHay(w) {
+  const p = w.progress || {};
+  return normQ([w.text, w.note, p.line, ...(p.tasks || []).map((t) => `${t.t} ${t.hint || ''}`)].join(' '));
+}
 const md = (s) => { const m = String(s || '').match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${+m[1]}/${+m[2]}` : ''; };
 function today() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
 
@@ -535,15 +542,21 @@ function renderWishes() {
   const n = wishes.filter((w) => w.state === 'open').length;
   $('#wish-count').textContent = n ? `${n}件` : '';
   renderDest();
-  document.querySelectorAll('[data-wt]').forEach((b) => b.classList.toggle('on', b.dataset.wt === wishTab));
-  const list = wishes.filter((w) => w.state === wishTab);
+  const words = normQ(wishQ).split(/\s+/).filter(Boolean);
+  document.querySelectorAll('[data-wt]').forEach((b) => b.classList.toggle('on', !words.length && b.dataset.wt === wishTab));
+  const ORDER = { open: 0, done: 1, drop: 2 };
+  const list = words.length
+    ? wishes.filter((w) => { const h = wishHay(w); return words.every((x) => h.includes(x)); }).sort((a, b) => ORDER[a.state] - ORDER[b.state])
+    : wishes.filter((w) => w.state === wishTab);
   if (!list.length) {
-    $('#wishes').innerHTML = `<div class="muted">${wishTab === 'open' ? 'まだありません。思いついたら上に一言どうぞ' : 'まだありません'}</div>`;
+    $('#wishes').innerHTML = `<div class="muted">${words.length ? '見つかりません（やりたい・やった・やめた の全部から探しました）' : wishTab === 'open' ? 'まだありません。思いついたら上に一言どうぞ' : 'まだありません'}</div>`;
     return;
   }
-  $('#wishes').innerHTML = list.map((w) => {
+  const STATE_L = { open: 'やりたい', done: 'やった', drop: 'やめた' };
+  $('#wishes').innerHTML = (words.length ? `<div class="meta">${list.length}件（全部の分類から）</div>` : '') + list.map((w) => {
     const id = esc(w.id);
-    if (wishTab === 'open') {
+    const tag = words.length ? `<span class="wstate">${STATE_L[w.state] || ''}</span>` : '';
+    if (w.state === 'open') {
       const drop = wishDropping === w.id ? `<div class="wdrop">
           <input data-note="${id}" maxlength="300" placeholder="やめた理由（なくてもよい）">
           <button class="btn small" data-wa="drop-ok" data-id="${id}">やめた</button>
@@ -552,11 +565,11 @@ function renderWishes() {
       return `<div class="wrow"><div class="wmain"><button type="button" class="wtext wlink" data-pickw="${id}" title="続きか新規かを選ぶ">${esc(w.text)}</button>
           <span class="wops"><button class="btn small ghost" data-pickw="${id}" title="続きか新規かを選ぶ">伴走</button><button class="btn small ghost" data-wa="done" data-id="${id}">やった</button>
           <button class="btn small ghost" data-wa="drop" data-id="${id}">やめた</button></span></div>
-          <div class="meta">${md(w.at)}に思った</div>${progressHtml(w.progress, w)}${drop}</div>`;
+          <div class="meta">${tag}${md(w.at)}に思った</div>${progressHtml(w.progress, w)}${drop}</div>`;
     }
     return `<div class="wrow"><div class="wmain"><span class="wtext">${esc(w.text)}</span>
         <span class="wops"><button class="btn small ghost" data-wa="open" data-id="${id}">やりたいに戻す</button></span></div>
-        <div class="meta">${md(w.at)}に思った → ${md(w.closedAt)}に${w.state === 'done' ? 'やった' : 'やめた'}</div>
+        <div class="meta">${tag}${md(w.at)}に思った → ${md(w.closedAt)}に${w.state === 'done' ? 'やった' : 'やめた'}</div>
         ${w.note ? `<div class="wnote">${esc(w.note)}</div>` : ''}</div>`;
   }).join('');
 }
@@ -564,8 +577,10 @@ function renderWishes() {
 document.querySelector('.wtabs').addEventListener('click', (e) => {
   const b = e.target.closest('[data-wt]');
   if (!b) return;
-  wishTab = b.dataset.wt; wishDropping = null; renderWishes();
+  wishTab = b.dataset.wt; wishDropping = null; wishQ = ''; $('#wish-q').value = ''; renderWishes();
 });
+$('#wish-q').addEventListener('input', (e) => { wishQ = e.target.value; wishDropping = null; renderWishes(); });
+$('#wish-q').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.target.value = ''; wishQ = ''; renderWishes(); } });
 
 $('#wish-form').addEventListener('submit', async (e) => {
   e.preventDefault();

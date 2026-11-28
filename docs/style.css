@@ -252,6 +252,9 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .wtabs { display: flex; gap: 4px; margin: 10px 0 4px; }
 .wtabs button { border: none; background: none; padding: 3px 10px; border-radius: 99px; color: var(--muted); cursor: pointer; font-size: .85rem; }
 .wtabs button.on { background: var(--chip); color: var(--ink); font-weight: 700; }
+.wtabs { align-items: center; }
+.wsearch { margin-left: auto; width: 9em; min-width: 0; flex: 0 1 9em; padding: 4px 10px; border: 1px solid var(--line); border-radius: 99px; background: var(--bg); color: var(--ink); font-size: .85rem; }
+.wstate { margin-right: 6px; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--ink); }
 .wrow { padding: 7px 0; border-top: 1px solid var(--line); }
 .wrow:first-child { border-top: none; }
 .wmain { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
@@ -415,6 +418,7 @@ button.wlink:hover { text-decoration: underline; }
   .btn.small { min-height: 40px; padding: 4px 12px; font-size: .85rem; }
   .wtabs button { min-height: 44px; padding: 4px 14px; }
   .wish-form input { min-height: 44px; }
+  .wsearch { min-height: 44px; flex-basis: 7em; }
   .fold > summary, .sdone summary, .wses summary { padding-block: 12px; }
   .hgrp summary { min-height: 44px; align-items: center; }
   .wops { flex-wrap: wrap; justify-content: flex-end; }
