@@ -200,10 +200,14 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .ufill.hot { background: var(--accent); }
 .upct { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); min-width: 2.6em; }
 .ureset { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ud, .ut { display: inline-block; text-align: right; }
+.ud:not(:empty) { min-width: 4.6em; margin-right: 4px; }
+.ut { min-width: 2.7em; }
 @media (max-width: 520px) {
   /* スマホは1つのアカウントを2段（5時間・7日）に */
   .usage { grid-template-columns: auto auto minmax(30px, 1fr) auto auto; }
   .w7 .ulab { grid-column: 2; margin-left: 0; }
+  .ud:empty { display: inline-block; min-width: 4.6em; margin-right: 4px; }   /* 5時間枠の時刻も7日枠の時刻の列に */
 }
 }
 .supd { margin-top: 8px; }
