@@ -385,6 +385,11 @@ $('#sessions').addEventListener('click', async (ev) => {
 let wishes = [];
 let wishTab = 'open';
 let wishDropping = null; // 「やめた」の理由を入力中のID
+// 開いているやりたいこと（最初は名前だけ。押すと見立て・作業・ボタンが開く。本人 11/28）。開いた物は端末に覚える
+const WISH_OPEN = 'portal-wish-open';
+let wishOpen = new Set();
+try { wishOpen = new Set(JSON.parse(localStorage.getItem(WISH_OPEN) || '[]')); } catch { /* 無くてよい */ }
+function saveWishOpen() { try { localStorage.setItem(WISH_OPEN, JSON.stringify([...wishOpen])); } catch { /* 無くてよい */ } }
 let wishQ = ''; // 検索語。入っている間は やりたい・やった・やめた をまたいで探す
 // 全角半角・大文字小文字・カタカナひらがなの違いを無視して比べる
 const normQ = (s) => String(s || '').normalize('NFKC').toLowerCase().replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60));
@@ -561,11 +566,16 @@ function renderWishes() {
           <input data-note="${id}" maxlength="300" placeholder="やめた理由（なくてもよい）">
           <button class="btn small" data-wa="drop-ok" data-id="${id}">やめた</button>
           <button class="btn small ghost" data-wa="drop-cancel">戻る</button></div>` : '';
-      // 名前を押すと、続きか新規かを選ぶ欄が下に開く（伴走ボタンの役目もここへ移した）
-      return `<div class="wrow"><div class="wmain"><button type="button" class="wtext wlink" data-pickw="${id}" title="続きか新規かを選ぶ">${esc(w.text)}</button>
+      // 最初は名前と進み具合の点だけ。名前を押すと中身が開く（続きか新規かは中の「伴走」で選ぶ）
+      const open = wishOpen.has(w.id) || wishDropping === w.id;
+      const p = w.progress, tasks = (p && p.tasks) || [];
+      const mini = p && p.stage in STAGE_N
+        ? `<span class="wmini"><span class="wdots">${[0, 1, 2, 3].map((i) => `<i class="${i < STAGE_N[p.stage] ? 'on' : ''}"></i>`).join('')}</span>${tasks.length ? `${tasks.filter((t) => t.s === '済').length}/${tasks.length}` : esc(p.stage)}</span>` : '';
+      const body = open ? `<div class="wbody"><div class="wmain wact"><span class="meta">${md(w.at)}に思った</span>
           <span class="wops"><button class="btn small ghost" data-pickw="${id}" title="続きか新規かを選ぶ">伴走</button><button class="btn small ghost" data-wa="done" data-id="${id}">やった</button>
-          <button class="btn small ghost" data-wa="drop" data-id="${id}">やめた</button></span></div>
-          <div class="meta">${tag}${md(w.at)}に思った</div>${progressHtml(w.progress, w)}${drop}</div>`;
+          <button class="btn small ghost" data-wa="drop" data-id="${id}">やめた</button></span></div>${progressHtml(p, w)}${drop}</div>` : '';
+      return `<div class="wrow${open ? ' open' : ''}"><button type="button" class="wtog" data-wtog="${id}" aria-expanded="${open}">
+          <span class="wcar" aria-hidden="true">›</span><span class="wtext">${tag}${esc(w.text)}</span>${mini}</button>${body}</div>`;
     }
     return `<div class="wrow"><div class="wmain"><span class="wtext">${esc(w.text)}</span>
         <span class="wops"><button class="btn small ghost" data-wa="open" data-id="${id}">やりたいに戻す</button></span></div>
@@ -604,6 +614,13 @@ $('#wish-form').addEventListener('submit', async (e) => {
   renderWishes();
 });
 
+$('#wishes').addEventListener('click', (e) => {
+  const g = e.target.closest('[data-wtog]');
+  if (!g) return;
+  const id = g.dataset.wtog;
+  if (wishOpen.has(id)) { wishOpen.delete(id); if (wishDropping === id) wishDropping = null; } else wishOpen.add(id);
+  saveWishOpen(); renderWishes();
+});
 $('#wishes').addEventListener('click', async (e) => {
   const b = e.target.closest('[data-wa]');
   if (!b) return;
