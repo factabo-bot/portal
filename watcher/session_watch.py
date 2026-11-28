@@ -241,7 +241,7 @@ def collect():
             continue
         if f["cwd"] and pathlib.PurePath(f["cwd"]).name == "_llm":   # やりたいことの見立て役（claude -p）
             continue
-        sync = session_sync.in_scope(p.parent.name)
+        sync = session_sync.in_scope(p.parent.name) and not session_sync.is_blocked(p.stem)
         if sync and session_sync.from_other_pc(p.stem, p.stat().st_size):   # 最後に話したのは相手のPC（相手が出す）
             continue
         dinfo = didx.get(p.stem)
