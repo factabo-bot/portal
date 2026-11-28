@@ -6,6 +6,7 @@
   両方で別々に書き足して食い違ったら、どちらも触らずログに残す（上書きで会話を消さない）
 - 合言葉・鍵が入った記録は写さない（ドライブを見られても漏れないように）。~/projects の下の .local.json の値と、
   鍵らしい形（sk-ant- など）を探す。見つかった会話は blocked.json に残し、以後写さない（一覧でも「ほかのPCで開ける」を付けない）
+- 置き場の写しも、このPCの合言葉で調べる（相手のPCに無い合言葉もあるため）。見つかったら写しを消して以後写さない
 - 相手のPCから取り込んだ記録は pulled.json に大きさを残す。大きさがそのまま＝最後に話したのは相手のPC
   → このPCのセッション一覧には出さない（相手のPCが出す）。このPCで続きを話して大きくなったら、このPCが出す
 """
@@ -20,6 +21,7 @@ PROJECTS = pathlib.Path.home() / ".claude" / "projects"
 SHARED = pathlib.Path("G:/マイドライブ/_claude共有/sessions")
 PULLED = HERE / "pulled.json"     # 記録のID → 取り込んだときの大きさ（PCの中だけ・git 管理外）
 WINDOW_H = 72                     # これより古い記録は写さない
+SCANNED = HERE / "scanned.json"   # 置き場の写しをこのPCの合言葉で調べ終えた位置（PCの中だけ・git 管理外）
 BLOCKED = HERE / "blocked.json"   # 合言葉が入っていて写さない会話のID（PCの中だけ・git 管理外）
 KEEP_DAYS = 14                    # 置き場の古い写しはこれで捨てる
 QUIET_S = 5                       # 書き込み中の記録は触らない
@@ -125,6 +127,11 @@ def run(live=None, log=print):
     nblocked = len(blocked)
     sec = None
     changed = False
+    try:
+        scanned = json.loads(SCANNED.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        scanned = {}
+    nscan = dict(scanned)
     ids = {}
     for root, side in ((PROJECTS, "l"), (SHARED, "d")):
         if not root.exists():
@@ -157,6 +164,15 @@ def run(live=None, log=print):
                 continue
             if ds >= 0 and now - drv.stat().st_mtime < QUIET_S:
                 continue
+            if ds > scanned.get(sid, 0):        # 置き場の写しの、まだ調べていない所
+                if sec is None:
+                    sec = secrets()
+                if has_secret(drv, scanned.get(sid, 0), ds, sec):
+                    drv.unlink()
+                    blocked.add(sid)
+                    log(f"sync: {sid[:8]} の写しに合言葉・鍵があったので消した")
+                    continue
+                scanned[sid] = ds
             if ls == ds:
                 continue
             if ls > ds:          # このPCの方が先へ進んでいる → 置き場へ足す
@@ -191,6 +207,11 @@ def run(live=None, log=print):
         if k not in keep:
             del pulled[k]
             changed = True
+    for k in list(scanned):
+        if k not in keep:
+            del scanned[k]
+    if scanned != nscan:
+        SCANNED.write_text(json.dumps(scanned), encoding="utf-8")
     if len(blocked) != nblocked:
         BLOCKED.write_text(json.dumps(sorted(blocked)), encoding="utf-8")
     if changed:

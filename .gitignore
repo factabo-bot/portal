@@ -14,3 +14,4 @@ gas/tools/__pycache__/
 watcher/usage_cache*.json
 watcher/pulled.json
 watcher/blocked.json
+watcher/scanned.json
