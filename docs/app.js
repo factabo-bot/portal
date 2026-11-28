@@ -220,7 +220,9 @@ function switchTo(s) {
 }
 function switchHtml(s) {
   const sw = switchTo(s);
-  return sw ? `<a class="slink" href="${esc(sw.url)}" title="${esc(`${sw.app}で続きを開く。${quotaText(sw.app)}。開いたら、元のアプリの方では送らない`)}">${sw.app}に切り替え${quotaTight(sw.app) ? '（枠わずか）' : ''}</a>` : '';
+  if (!sw) return '';
+  const to = acctName(Object.keys(ACCT_APP).find((k) => ACCT_APP[k] === sw.app) || '') || sw.app;
+  return sw ? `<a class="slink sicon" href="${esc(sw.url)}" title="${esc(`${to}（${sw.app}）に切り替えて続きを開く。${quotaText(sw.app)}。開いたら、元のアプリの方では送らない`)}">${IC.swap}${esc(to)}へ${quotaTight(sw.app) ? '（枠わずか）' : ''}</a>` : '';
 }
 
 // スマホ：Claudeアプリは1つのアカウントでしか開けない（別のアカウントの会話は「利用できません」になる。11/25 実機）。
@@ -245,6 +247,32 @@ document.addEventListener('click', (e) => {
   if (b) copyAndOpenClaude(handoffPrompt(b.dataset.hand, b.dataset.title));
 });
 
+// アカウントの呼び名（窓口のデータは「アカウントA/B」のまま。画面だけ main/sub と出す）
+const ACCT_NAME = { アカウントA: 'main', アカウントB: 'sub' };
+const acctName = (a) => ACCT_NAME[a] || a || '';
+// 今のログイン：main＝VS Code（CLI）、sub＝デスクトップ。行のアプリがこれと違うときだけアプリ名を出す
+const ACCT_APP = { アカウントA: 'VS Code', アカウントB: 'デスクトップ' };
+const svg = (d) => `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const IC = {
+  folder: svg('<path d="M1.5 4.5v8h13v-6.5h-6.5l-1.5-1.5z"/>'),
+  pc: svg('<rect x="3" y="3.5" width="10" height="7"/><path d="M1.5 12.5h13"/>'),
+  code: svg('<path d="M5.5 4.5 2 8l3.5 3.5M10.5 4.5 14 8l-3.5 3.5"/>'),
+  app: svg('<rect x="2" y="2.5" width="12" height="11"/><path d="M2 5.5h12"/>'),
+  web: svg('<circle cx="8" cy="8" r="6"/><path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"/>'),
+  swap: svg('<path d="M2.5 5.5h10l-2.5-2.5M13.5 10.5h-10l2.5 2.5"/>'),
+};
+// main・sub の使用量（5時間枠・7日枠）。main＝VS Code（CLIのログイン・公式の値）、sub＝デスクトップ（推定）
+function usageHtml() {
+  const one = (acct, key) => {
+    const q = lastQuota && lastQuota[key];
+    const bar = (v, lab) => `<span class="ubar" title="${lab} ${v}%"><span class="ulab">${lab}</span><span class="utrack"><span class="ufill${v >= 80 ? ' hot' : ''}" style="width:${Math.min(100, Math.max(0, +v || 0))}%"></span></span><span class="upct">${+v || 0}%</span></span>`;
+    if (!q) return `<div class="urow"><span class="stag">${acctName(acct)}</span><span class="muted">使用量は不明</span></div>`;
+    const reset = q.fhReset && q.fhReset * 1000 > Date.now() ? `${hm(new Date(Math.round(q.fhReset / 60) * 60000))}回復` : '';
+    return `<div class="urow"><span class="stag">${acctName(acct)}</span>${bar(q.fh, '5時間')}${bar(q.sd, '7日')}<span class="ureset">${reset}${q.est ? (reset ? '・' : '') + '推定' : ''}</span></div>`;
+  };
+  return `<div class="usage">${one('アカウントA', 'vscode')}${one('アカウントB', 'desktop')}</div>`;
+}
+
 function renderSessions(data) {
   const el = $('#sessions');
   if (!data) { el.innerHTML = '<div class="muted">まだ届いていません（PCの見回り役が未起動）</div>'; return; }
@@ -259,7 +287,7 @@ function renderSessions(data) {
     const appUrl = away ? '' : appUrl0;   // ほかのPCの会話は、このPCのアプリでは開けない
     const ph = PHONE ? phoneLink(s.rc, s.acct) : null;
     const main = PHONE ? (ph ? ph.url : '') : (appUrl || web);
-    const sub = PHONE ? (ph ? (ph.via ? `<span>${esc(ph.via)}</span>` : '') : '') : appUrl && web ? `<a class="slink" href="${esc(web)}" target="_blank" rel="noopener noreferrer">ブラウザで</a>` : '';
+    const sub = PHONE ? (ph ? (ph.via ? `<span>${esc(ph.via)}</span>` : '') : '') : appUrl && web ? `<a class="slink sicon" href="${esc(web)}" target="_blank" rel="noopener noreferrer" title="ブラウザで開く" aria-label="ブラウザで開く">${IC.web}</a>` : '';
     // スマホで会話を開けない・別アカウントのときは、新しい会話で続ける（作業中は同じ物を2つで触らないよう出さない）
     const hand = PHONE && s.state !== 'work' && (!ph || ph.via) && (!s.host || s.host === HOME_PC) ? `<button type="button" class="btn small ghost shide" data-hand="${esc(s.id)}" data-title="${esc(s.title)}">新しい会話で続ける</button>` : '';
     const label = s.hide ? '済み' : s.state === 'ask' && s.seen ? '見た・返事まだ' : ST[s.state] || '';
@@ -267,9 +295,16 @@ function renderSessions(data) {
       ${s.q ? `<div class="sq">${esc(s.q)}</div>` : ''}`;
     const btn = waiting(s) ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" title="もう返事がいらない会話を下げる（新しいやり取りがあればまた出ます）">済みにする</button>`
       : s.hide ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" data-undo="1">戻す</button>` : '';
+    const acctApp = s.acct && ACCT_APP[s.acct];
+    const tags = [
+      s.acct ? `<span class="stag">${esc(acctName(s.acct))}</span>` : '',
+      !acctApp || acctApp !== s.app ? `<span class="sic" title="アプリ">${s.app === 'VS Code' ? IC.code : IC.app}${esc(s.app)}</span>` : '',
+      s.host && s.host !== HOME_PC ? `<span class="sic" title="PC">${IC.pc}${esc(pcName(s.host))}</span>` : '',
+      s.folder && s.folder !== 'obsidian' ? `<span class="sic" title="フォルダ">${IC.folder}${esc(s.folder)}</span>` : '',
+    ].join('');
     return `<div class="srow st-${s.hide ? 'done' : s.state === 'ask' && s.seen ? 'seen' : esc(s.state)}">
       ${main ? `<a class="sbody" href="${esc(main)}"${ph ? ph.attr : main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
-      <div class="meta">${s.host && s.host !== HOME_PC ? esc(pcName(s.host)) + '・' : ''}${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub} ${switchHtml(s)}${away ? `<span class="slink">${esc(pcName(s.host))}${s.sy ? 'で作業中' : 'で開いてください'}</span>` : ''}${hand}${btn}</div></div>`;
+      <div class="sfoot">${tags}<span class="sago">${ago(s.at)}</span><span class="sact">${sub}${switchHtml(s)}${away ? `<span class="sic">${esc(pcName(s.host))}${s.sy ? 'で作業中' : 'で開いてください'}</span>` : ''}${hand}${btn}</span></div></div>`;
   };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
   const sorted = [...list].sort((a, b) => b.at - a.at);
@@ -282,10 +317,10 @@ function renderSessions(data) {
     const t = new Date(p.at), old = Date.now() - t.getTime() > 90 * 60000;
     return `<span class="${old ? 'stale' : ''}">${pcs.length > 1 ? esc(pcName(p.host)) + ' ' : 'PCから '}${t.getMonth() + 1}/${t.getDate()} ${hm(t)}${old ? '（止まっているかもしれません）' : ''}</span>`;
   }).join('・');
-  el.innerHTML = (head.length ? head.map(row).join('') : '<div class="muted">48時間以内のセッションはありません</div>')
+  el.innerHTML = usageHtml() + (head.length ? head.map(row).join('') : '<div class="muted">48時間以内のセッションはありません</div>')
     + (rest.length ? `<details class="sdone"><summary>ほか ${rest.length}件（返事済み・済み、48時間以内）</summary>${rest.map(row).join('')}</details>` : '')
     + `<div class="supd">${upd} に更新</div>`
-    + (PHONE ? `<div class="supd">このスマホのClaudeアプリ：${esc(phoneAcct)} <button type="button" class="btn small ghost" data-acct>変える</button></div>` : '');
+    + (PHONE ? `<div class="supd">このスマホのClaudeアプリ：${esc(acctName(phoneAcct))} <button type="button" class="btn small ghost" data-acct>変える</button></div>` : '');
 }
 
 // セッションだけ読み直す（開いている間は1分おき）
