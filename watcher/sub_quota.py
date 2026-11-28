@@ -54,7 +54,9 @@ def fetch(now=None):
         return None
     try:
         c = json.loads(CACHE.read_text(encoding="utf-8"))
-        if now - c.get("at", 0) < 60:
+        # 5分に1回だけ問い合わせる（使用量の窓口は回数が多いと429で断り、VS Code側の表示まで出なくなった 11/28）。
+        # 断られたら15分は問い合わせず、前の値を使う
+        if now - c.get("at", 0) < 300 or now < c.get("wait", 0):
             return c.get("q")
     except Exception:  # noqa: BLE001
         pass
@@ -66,8 +68,18 @@ def fetch(now=None):
         return None
     req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage",
                                  headers={"Authorization": f"Bearer {tok}", "anthropic-beta": "oauth-2025-04-20"})
-    with urllib.request.urlopen(req, timeout=6) as r:
-        raw = json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=6) as r:
+            raw = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        try:
+            c = json.loads(CACHE.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            c = {}
+        c["wait"] = now + 900
+        CACHE.write_text(json.dumps(c), encoding="utf-8")
+        return c.get("q") if now - c.get("at", 0) < 3600 else None
+
 
     def ts(v):
         try:

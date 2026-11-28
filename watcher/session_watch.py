@@ -289,7 +289,13 @@ def quotas():
     try:
         sys.path.insert(0, str(pathlib.Path.home() / "projects" / "ai-session-monitor"))
         import collector  # noqa: E402
-        q = collector.fetch_claude_quota(pathlib.Path.home(), now)
+        # main も5分に1回だけ（collector は1分で問い合わせ直す。VS Code 拡張も同じ窓口を使うので、こちらは控えめに）
+        mc = pathlib.Path.home() / ".claude" / ".quota_cache.json"
+        try:
+            age = now - json.loads(mc.read_text(encoding="utf-8")).get("at", 0)
+        except Exception:  # noqa: BLE001
+            age = 1e9
+        q = collector.fetch_claude_quota(pathlib.Path.home(), now if age >= 300 else now - age)
         if q:
             out["vscode"] = {"fh": round(q["primary"]["used_percent"]), "sd": round(q["secondary"]["used_percent"]),
                              "at": int(now), "fhReset": q["primary"].get("resets_at"),

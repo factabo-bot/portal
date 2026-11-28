@@ -250,6 +250,7 @@ document.addEventListener('click', (e) => {
 // アカウントの呼び名（窓口のデータは「アカウントA/B」のまま。画面だけ main/sub と出す）
 const ACCT_NAME = { アカウントA: 'main', アカウントB: 'sub' };
 const acctName = (a) => ACCT_NAME[a] || a || '';
+const acctCls = (a) => (ACCT_NAME[a] ? 'a-' + ACCT_NAME[a] : '');   // main・sub の色分け
 // 今のログイン：main＝VS Code（CLI）、sub＝デスクトップ。行のアプリがこれと違うときだけアプリ名を出す
 const ACCT_APP = { アカウントA: 'VS Code', アカウントB: 'デスクトップ' };
 const svg = (d) => `<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -268,7 +269,7 @@ function usageHtml() {
   const day = (d) => `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`;
   const one = (acct, key) => {
     const q = lastQuota && lastQuota[key];
-    const name = `<span class="stag">${acctName(acct)}</span>`;
+    const name = `<span class="stag ${acctCls(acct)}">${acctName(acct)}</span>`;
     if (!q) return `${name}<span class="unone muted">使用量は不明</span>`;
     const est = q.est ? '（推定）' : '';
     const live = (x) => x && x * 1000 > Date.now();
@@ -282,7 +283,7 @@ function usageHtml() {
         : a.toDateString() === b.toDateString() ? `${day(a)} ${a.getHours()}〜${b.getHours() + (b.getMinutes() ? 1 : 0)}時ごろ`
         : `${day(a)} ${hm(a)}〜${day(b)} ${hm(b)}`;
     }
-    const bar = (v, lab, reset, cls) => `<span class="ubar ${cls}" title="${lab}の枠 ${+v || 0}%${reset ? '・' + reset.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() + 'に戻る' : ''}${est}"><span class="ulab">${lab}</span><span class="utrack"><span class="ufill${v >= 80 ? ' hot' : ''}" style="width:${Math.min(100, Math.max(0, +v || 0))}%"></span></span><span class="upct">${+v || 0}%</span><span class="ureset">${reset}</span></span>`;
+    const bar = (v, lab, reset, cls) => `<span class="ubar ${cls}" title="${lab}の枠 ${+v || 0}%${reset ? '・' + reset.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() + 'に戻る' : ''}${est}"><span class="ulab">${lab}</span><span class="utrack"><span class="ufill ${acctCls(acct)}" style="width:${Math.min(100, Math.max(0, +v || 0))}%"></span></span><span class="upct${v >= 80 ? ' hot' : ''}">${+v || 0}%</span><span class="ureset">${reset}</span></span>`;
     return name + bar(q.fh, '5時間', fhR, 'w5') + bar(q.sd, '7日', sdR, 'w7');
   };
   return `<div class="usage">${one('アカウントA', 'vscode')}${one('アカウントB', 'desktop')}</div>`;
@@ -312,7 +313,7 @@ function renderSessions(data) {
       : s.hide ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" data-undo="1">戻す</button>` : '';
     const acctApp = s.acct && ACCT_APP[s.acct];
     const tags = [
-      s.acct ? `<span class="stag">${esc(acctName(s.acct))}</span>` : '',
+      s.acct ? `<span class="stag ${acctCls(s.acct)}">${esc(acctName(s.acct))}</span>` : '',
       !acctApp || acctApp !== s.app ? `<span class="sic" title="アプリ">${s.app === 'VS Code' ? IC.code : IC.app}${esc(s.app)}</span>` : '',
       s.host && s.host !== HOME_PC ? `<span class="sic" title="PC">${IC.pc}${esc(pcName(s.host))}</span>` : '',
       s.folder && s.folder !== 'obsidian' ? `<span class="sic" title="フォルダ">${IC.folder}${esc(s.folder)}</span>` : '',

@@ -197,7 +197,14 @@ dialog label { display: block; margin: 10px 0; font-size: .85rem; }
 .w7 .ulab { margin-left: 10px; }
 .utrack { height: 4px; background: var(--line); }
 .ufill { display: block; height: 100%; background: var(--muted); }
-.ufill.hot { background: var(--accent); }
+.upct.hot { color: var(--accent); font-weight: 700; }
+/* main・sub の色分け（名前の文字と棒）。80%以上は％の数字を強い色に */
+:root { --c-main: #4a5bc4; --c-sub: #2e8a57; }
+@media (prefers-color-scheme: dark) { :root { --c-main: #9aa6f2; --c-sub: #6fcf97; } }
+.stag.a-main { color: var(--c-main); }
+.stag.a-sub { color: var(--c-sub); }
+.ufill.a-main { background: var(--c-main); }
+.ufill.a-sub { background: var(--c-sub); }
 .upct { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); min-width: 2.6em; }
 .ureset { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ud, .ut { display: inline-block; text-align: right; }
