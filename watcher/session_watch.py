@@ -378,6 +378,11 @@ def main():
         log("sync error: " + repr(e)[:300])
     sessions = collect()
     q = quotas()
+    try:                               # 裏で Claude を呼ぶときの行き先決め（llm_route.py）に使う。問い合わせは増やさない
+        import llm_route
+        llm_route.save(q)
+    except Exception as e:  # noqa: BLE001
+        log("quota save: " + repr(e)[:120])
     v = voices()
     coarse = {k: (v["fh"] // 5, v["sd"] // 5) for k, v in q.items()}   # 5%刻みで変わったら送り直す
     digest = hashlib.sha256(json.dumps([sessions, coarse, v], ensure_ascii=False, sort_keys=True).encode()).hexdigest()

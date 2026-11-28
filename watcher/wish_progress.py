@@ -229,12 +229,14 @@ def main():
 - line・basis は事実だけ。金額の細部・人名・住所は書かない
 """
     WORKDIR.mkdir(exist_ok=True)
-    claude = str(pathlib.Path.home() / ".local" / "bin" / "claude.exe")
-    r = subprocess.run([claude, "-p", "--model", "opus", "--no-session-persistence",
-                        "--tools", "Read,Grep,Glob", "--allowedTools", "Read,Grep,Glob",
-                        "--add-dir", str(MEMORY_DIR), "--add-dir", str(SUMMARY_DIR)],
-                       input=prompt, cwd=WORKDIR, capture_output=True, text=True, encoding="utf-8", timeout=1200,
-                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))  # 黒い画面を出さない
+    import llm_route   # main・sub の余裕がある方で（main を使い切らないように）。どちらも無理なら次の起動でやり直す
+    r, who = llm_route.run(["-p", "--model", "opus", "--no-session-persistence",
+                            "--tools", "Read,Grep,Glob", "--allowedTools", "Read,Grep,Glob",
+                            "--add-dir", str(MEMORY_DIR), "--add-dir", str(SUMMARY_DIR)],
+                           prompt, WORKDIR, 1200, log=log)
+    if r is None:
+        log("progress: main・sub とも枠に余裕がないので見送り")
+        return
     out = r.stdout or ""
     m = re.search(r"\[\s*\{.*\}\s*\]", out, re.S)
     if r.returncode != 0 or not m:

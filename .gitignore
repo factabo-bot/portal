@@ -15,3 +15,4 @@ watcher/usage_cache*.json
 watcher/pulled.json
 watcher/blocked.json
 watcher/scanned.json
+watcher/quota_last.json
