@@ -320,7 +320,7 @@ function renderSessions(data) {
     ].join('');
     return `<div class="srow st-${s.hide ? 'done' : s.state === 'ask' && s.seen ? 'seen' : esc(s.state)}">
       ${main ? `<a class="sbody" href="${esc(main)}"${ph ? ph.attr : main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
-      <div class="sfoot">${tags}<span class="sago">${ago(s.at)}</span><span class="sact">${sub}${switchHtml(s)}${away ? `<span class="sic">${esc(pcName(s.host))}${s.sy ? 'で作業中' : 'で開いてください'}</span>` : ''}${hand}${btn}</span></div></div>`;
+      <div class="sfoot">${tags}<span class="sago">${ago(s.at)}</span><span class="sact">${sub}${switchHtml(s)}${away ? `<span class="sic">${esc(pcName(s.host))}${s.sy ? 'で作業中' : s.bk ? 'だけ（合言葉入りで写していない）' : 'で開いてください'}</span>` : ''}${hand}${btn}</span></div></div>`;
   };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
   const sorted = [...list].sort((a, b) => b.at - a.at);

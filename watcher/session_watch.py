@@ -241,7 +241,8 @@ def collect():
             continue
         if f["cwd"] and pathlib.PurePath(f["cwd"]).name == "_llm":   # やりたいことの見立て役（claude -p）
             continue
-        sync = session_sync.in_scope(p.parent.name) and not session_sync.is_blocked(p.stem)
+        blk = session_sync.in_scope(p.parent.name) and session_sync.is_blocked(p.stem)
+        sync = session_sync.in_scope(p.parent.name) and not blk
         if sync and session_sync.from_other_pc(p.stem, p.stat().st_size):   # 最後に話したのは相手のPC（相手が出す）
             continue
         dinfo = didx.get(p.stem)
@@ -268,6 +269,8 @@ def collect():
         }
         if sync:
             s["sy"] = 1                # 2台で写し合っている＝どちらのPCからでも開ける
+        elif blk:
+            s["bk"] = 1                # 合言葉・鍵が入っていて写していない＝このPCでしか開けない（画面で理由を出す）
         if f["entry"] == "claude-desktop":
             s["cli"] = p.stem          # もう片方（VS Code）で開くための記録のID
             # スマホ用のIDもアプリの管理情報が正（切り替えた会話の記録には、前のアプリのIDが残る）

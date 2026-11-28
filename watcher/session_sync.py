@@ -4,8 +4,11 @@
 - 置き場：G:/マイドライブ/_claude共有/sessions/<記録フォルダ名>/<記録のID>.jsonl（Google ドライブが2台へ配る）
 - 記録は後ろに書き足すだけのファイルなので、「片方がもう片方の頭と同じ」ときだけ、足りない後ろを足す。
   両方で別々に書き足して食い違ったら、どちらも触らずログに残す（上書きで会話を消さない）
-- 合言葉・鍵が入った記録は写さない（ドライブを見られても漏れないように）。~/projects の下の .local.json の値と、
-  鍵らしい形（sk-ant- など）を探す。見つかった会話は blocked.json に残し、以後写さない（一覧でも「ほかのPCで開ける」を付けない）
+- 合言葉・鍵が入った記録は写さない（ドライブを見られても漏れないように）。~/projects の下の .local.json のうち
+  項目名が token・key・secret・pass などの値と、鍵らしい形（sk-ant- など）を探す。見つかった会話は blocked.json に
+  当たった項目名（値は残さない）と一緒に残し、以後写さない（一覧でも「ほかのPCで開ける」を付けない）
+  11/28 までは .local.json の16文字以上の値を全部見ていて、配備ID・シートID・場所などで合言葉でない会話まで止めていた
+  → 項目名で絞り、古い形の blocked.json（ただの一覧）は捨てて調べ直す
 - 置き場の写しも、このPCの合言葉で調べる（相手のPCに無い合言葉もあるため）。見つかったら写しを消して以後写さない
 - 相手のPCから取り込んだ記録は pulled.json に大きさを残す。大きさがそのまま＝最後に話したのは相手のPC
   → このPCのセッション一覧には出さない（相手のPCが出す）。このPCで続きを話して大きくなったら、このPCが出す
@@ -36,32 +39,41 @@ def in_scope(projdir):
 KEY_RE = re.compile(rb"sk-ant-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----")
 
 
+SECRET_NAME = re.compile(r"token|key|secret|pass|pwd|auth|cred", re.I)
+
+
 def secrets():
-    """自作プログラムの合言葉（~/projects の下の .local.json の文字列の値で、16文字以上の物）"""
-    out = set()
+    """自作プログラムの合言葉（~/projects の下の .local.json で、項目名が合言葉らしい16文字以上の値）→ {値: 'フォルダ/項目名'}"""
+    out = {}
     for p in list((pathlib.Path.home() / "projects").glob("*/.local.json")) + list((pathlib.Path.home() / "projects").glob("*/*/.local.json")):
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             continue
-        for v in (d.values() if isinstance(d, dict) else []):
-            if isinstance(v, str) and len(v) >= 16 and not v.startswith("http"):
-                out.add(v.encode("utf-8"))
+        for k, v in (d.items() if isinstance(d, dict) else []):
+            if isinstance(v, str) and len(v) >= 16 and not v.startswith("http") and SECRET_NAME.search(str(k)):
+                out[v.encode("utf-8")] = f"{p.parent.name}/{k}"
     return out
 
 
 def has_secret(path, start, end, sec):
+    """当たった物の名前（値は返さない）。無ければ空"""
     with path.open("rb") as f:
         f.seek(start)
         b = f.read(end - start)
-    return bool(KEY_RE.search(b)) or any(x in b for x in sec)
+    m = KEY_RE.search(b)
+    if m:
+        return "鍵の形 " + m.group(0)[:7].decode("ascii", "replace")
+    return next((name for x, name in sec.items() if x in b), "")
 
 
 def load_blocked():
+    """{記録のID: 当たった物の名前}。古い形（ただの一覧＝何でも止めていた頃）は捨てて調べ直す"""
     try:
-        return set(json.loads(BLOCKED.read_text(encoding="utf-8")))
+        d = json.loads(BLOCKED.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return set()
+        return {}
+    return d if isinstance(d, dict) else {}
 
 
 def is_blocked(sid):
@@ -124,7 +136,7 @@ def run(live=None, log=print):
     now = time.time()
     pulled = load_pulled()
     blocked = load_blocked()
-    nblocked = len(blocked)
+    nblocked = dict(blocked)
     sec = None
     changed = False
     try:
@@ -167,10 +179,11 @@ def run(live=None, log=print):
             if ds > scanned.get(sid, 0):        # 置き場の写しの、まだ調べていない所
                 if sec is None:
                     sec = secrets()
-                if has_secret(drv, scanned.get(sid, 0), ds, sec):
+                why = has_secret(drv, scanned.get(sid, 0), ds, sec)
+                if why:
                     drv.unlink()
-                    blocked.add(sid)
-                    log(f"sync: {sid[:8]} の写しに合言葉・鍵があったので消した")
+                    blocked[sid] = why
+                    log(f"sync: {sid[:8]} の写しに合言葉・鍵（{why}）があったので消した")
                     continue
                 scanned[sid] = ds
             if ls == ds:
@@ -183,9 +196,10 @@ def run(live=None, log=print):
                 if end > max(ds, 0):
                     if sec is None:
                         sec = secrets()
-                    if has_secret(loc, max(ds, 0), end, sec):
-                        blocked.add(sid)
-                        log(f"sync: {sid[:8]} に合言葉・鍵が入っているので写さない")
+                    why = has_secret(loc, max(ds, 0), end, sec)
+                    if why:
+                        blocked[sid] = why
+                        log(f"sync: {sid[:8]} に合言葉・鍵（{why}）が入っているので写さない")
                         continue
                     append_tail(loc, drv, max(ds, 0), end)
             else:                # 相手のPCの方が先へ進んでいる → このPCへ足す
@@ -212,8 +226,8 @@ def run(live=None, log=print):
             del scanned[k]
     if scanned != nscan:
         SCANNED.write_text(json.dumps(scanned), encoding="utf-8")
-    if len(blocked) != nblocked:
-        BLOCKED.write_text(json.dumps(sorted(blocked)), encoding="utf-8")
+    if blocked != nblocked or not BLOCKED.exists() or not isinstance(json.loads(BLOCKED.read_text(encoding="utf-8") or "{}"), dict):
+        BLOCKED.write_text(json.dumps(blocked, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     if changed:
         PULLED.write_text(json.dumps(pulled), encoding="utf-8")
 
