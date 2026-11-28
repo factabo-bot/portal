@@ -378,8 +378,11 @@ def main():
     coarse = {k: (v["fh"] // 5, v["sd"] // 5) for k, v in q.items()}   # 5%刻みで変わったら送り直す
     digest = hashlib.sha256(json.dumps([sessions, coarse, v], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
     prev = json.loads(STATE.read_text(encoding="utf-8")) if STATE.exists() else {}
-    # 変化がなくても1時間に1回は送る（ポータル側で「最終更新」が古くならないように）
-    if prev.get("digest") == digest and time.time() - prev.get("sent", 0) < 3600 and "--force" not in sys.argv:
+    # 変化がなくても1時間に1回は送る（ポータル側で「最終更新」が古くならないように）。
+    # sub の公式の値を持つPC（~/.claude-sub にログインした家のPC）は10分に1回。窓口は15分以内の公式の値を
+    # 推定より優先するので、1時間あくとノートPCの推定に上書きされていた（11/28）
+    every = 600 if q.get("desktop", {}).get("est") is False else 3600
+    if prev.get("digest") == digest and time.time() - prev.get("sent", 0) < every and "--force" not in sys.argv:
         return
     body = json.dumps({"key": cfg["pushToken"], "type": "pushSessions", "host": socket.gethostname()[:30],
                        "sessions": sessions, "quota": q, "voice": v}, ensure_ascii=False).encode("utf-8")
