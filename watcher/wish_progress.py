@@ -230,7 +230,7 @@ def main():
 """
     WORKDIR.mkdir(exist_ok=True)
     claude = str(pathlib.Path.home() / ".local" / "bin" / "claude.exe")
-    r = subprocess.run([claude, "-p", "--model", "sonnet", "--no-session-persistence",
+    r = subprocess.run([claude, "-p", "--model", "opus", "--no-session-persistence",
                         "--tools", "Read,Grep,Glob", "--allowedTools", "Read,Grep,Glob",
                         "--add-dir", str(MEMORY_DIR), "--add-dir", str(SUMMARY_DIR)],
                        input=prompt, cwd=WORKDIR, capture_output=True, text=True, encoding="utf-8", timeout=1200,
