@@ -87,7 +87,7 @@ a { color: inherit; }
 @media (max-width: 859px) {
   .col { display: contents; }
   #wish-card { order: 1; } #ses-card { order: 2; } #memo-card { order: 3; } #ev-card { order: 4; } #weather-card { order: 5; }
-  #links { order: 6; } #pest-card { order: 7; } #keihi-card { order: 8; } #hold-card { order: 9; }
+  #links { order: 6; } #pest-card { order: 7; } #stock-card { order: 8; } #keihi-card { order: 9; } #hold-card { order: 10; }
 }
 
 .card {
@@ -362,6 +362,17 @@ button.wlink:hover { text-decoration: underline; }
 .fold > summary { cursor: pointer; color: var(--muted); font-size: .85rem; padding: 6px 0; list-style-position: inside; }
 /* 保有資産の明細：損益は灰色、前日比だけ色（原則4） */
 .hrow2 .r2 .pl { color: var(--muted); }
+/* 保有株のチャート（銘柄を押すと下に開く） */
+.hchart { cursor: pointer; }
+.hchart:hover .hn, .hchart.open .hn, .hchart:hover .qn, .hchart.open .qn { text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.chpanel { padding: 4px 0 10px; }
+.chtabs { display: flex; gap: 4px; margin: 2px 0 6px; }
+.chtabs button { flex: 1; min-height: 44px; border: 1px solid var(--line); background: transparent; color: var(--ink); border-radius: 8px; font: inherit; font-size: .85rem; cursor: pointer; }
+.chtabs button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.chinfo { font-size: .8rem; min-height: 1.3em; font-variant-numeric: tabular-nums; }
+.chinfo .up { color: #c0392b; } .chinfo .down { color: #2e6fb5; }
+@media (prefers-color-scheme: dark) { .chinfo .up { color: #ff8a73; } .chinfo .down { color: #7fb2ff; } }
+.chbox { height: 240px; margin-top: 4px; }
 /* 指で押す端末は押せる所を44px以上に（原則5） */
 @media (pointer: coarse) {
   .btn { min-height: 44px; padding-left: 14px; padding-right: 14px; }

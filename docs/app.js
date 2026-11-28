@@ -592,7 +592,8 @@ let stockEditing = false;
 let lastStocks = null, lastStocksErr = null, lastHoldings = null;
 function renderStocks(st, err) {
   const el = $('#stocks');
-  if (!el) return;   // 株価の欄は 11/24 に保有資産へまとめて廃止
+  if (!el) return;
+  if (el.querySelector('.chpanel')) closeChart();
   if (st !== undefined) { lastStocks = st; lastStocksErr = err; }
   st = lastStocks; err = lastStocksErr;
   if (stockEditing) return renderStockEditor();
@@ -613,7 +614,7 @@ function renderStocks(st, err) {
     return;
   }
   const fmtP = (n, cur) => n.toLocaleString('ja-JP', { maximumFractionDigits: cur === 'JPY' ? 1 : 2 });
-  const heldHtml = held.map((h) => `<div class="qrow"><span class="qn">${esc(h.name)} <span class="meta">${esc(h.code)}・保有</span></span>
+  const heldHtml = held.map((h) => `<div class="qrow hchart" data-chart="${esc(h.code)}" role="button" tabindex="0" title="押すとチャート"><span class="qn">${esc(h.name)} <span class="meta">${esc(h.code)}・保有</span></span>
       <span class="qp">${fmtP(h.price, h.cur)}${h.cur === 'USD' ? ' ドル' : ''}</span><span class="qc ${h.pct > 0 ? 'up' : h.pct < 0 ? 'down' : ''}">${h.pct >= 0 ? '+' : ''}${h.pct.toFixed(2)}%</span></div>`).join('');
   let latest = lastHoldings && lastHoldings.quoteTime ? lastHoldings.quoteTime : 0;
   el.innerHTML = heldHtml + qs.map((q) => {
@@ -622,7 +623,7 @@ function renderStocks(st, err) {
     const ch = q.prev ? q.price - q.prev : 0, pc = q.prev ? (ch / q.prev) * 100 : 0;
     const cls = ch > 0 ? 'up' : ch < 0 ? 'down' : '';
     const fmt = (n) => n.toLocaleString('ja-JP', { maximumFractionDigits: q.currency === 'JPY' ? 1 : 2 });
-    return `<div class="qrow"><span class="qn">${esc(q.name)} <span class="meta">${esc(q.code)}</span></span>
+    return `<div class="qrow hchart" data-chart="${esc(q.code)}" role="button" tabindex="0" title="押すとチャート"><span class="qn">${esc(q.name)} <span class="meta">${esc(q.code)}</span></span>
       <span class="qp">${fmt(q.price)}</span><span class="qc ${cls}">${ch >= 0 ? '+' : ''}${fmt(ch)}（${pc >= 0 ? '+' : ''}${pc.toFixed(2)}%）</span></div>`;
   }).join('');
   $('#stocks-at').textContent = latest ? `${hm(new Date(latest * 1000))}時点` : '';
@@ -717,6 +718,7 @@ async function loadHoldings() {
 }
 function renderHoldings(h) {
   lastHoldings = h || null;
+  closeChart();
   renderStocks();
   if (!h) { $('#hold').innerHTML = '<div class="muted">まだありません。「貼り付けて更新」から保有一覧を貼ってください</div>'; return; }
   $('#hold-at').textContent = `株は${h.quoteTime ? hm(new Date(h.quoteTime * 1000)) : '—'}時点・投信は${md(h.at)}時点`;
@@ -724,7 +726,7 @@ function renderHoldings(h) {
   const jp = h.stocks.filter((s) => s.cur === 'JPY'), us = h.stocks.filter((s) => s.cur !== 'JPY');
   const fmtP = (n, cur) => (n == null ? '—' : n.toLocaleString('ja-JP', { maximumFractionDigits: cur === 'JPY' ? 1 : 2 }) + (cur === 'USD' ? 'ドル' : '円'));
   const dpct = (s) => (s.value - s.day ? (s.day / (s.value - s.day)) * 100 : 0);
-  const srow = (s) => `<div class="hrow2"><div class="r1"><span class="hn">${esc(s.name)} <span class="meta">${esc(s.code)}・${esc(s.inst)}</span></span><span class="hv">${yen(s.value)}</span></div>
+  const srow = (s) => `<div class="hrow2 hchart" data-chart="${esc(s.code)}" data-name="${esc(s.name)}" role="button" tabindex="0" title="押すとチャート"><div class="r1"><span class="hn">${esc(s.name)} <span class="meta">${esc(s.code)}・${esc(s.inst)}</span></span><span class="hv">${yen(s.value)}</span></div>
       <div class="r2"><span>${fmtP(s.price, s.cur)} <span class="${pnlCls(s.day)}">${dpct(s) >= 0 ? '+' : ''}${dpct(s).toFixed(2)}%</span></span>
       <span>前日比 <span class="${pnlCls(s.day)}">${sign(s.day)}円</span></span>
       <span class="pl">損益 ${sign(s.pnl)}円（${s.pnlPct >= 0 ? '+' : ''}${s.pnlPct.toFixed(1)}%）</span></div></div>`;
@@ -742,6 +744,115 @@ function renderHoldings(h) {
     ${grp(`日本株 <span class="meta">${jp.length}銘柄</span>`, jp, srow)}${grp(`米国株 <span class="meta">${us.length}銘柄</span>`, us, srow, `<span class="meta">1ドル${h.fx ? h.fx.toFixed(2) : '—'}円</span>`)}${grp(`投資信託 <span class="meta">${h.funds.length}本</span>`, h.funds, frow)}
     <div class="meta">投資信託の基準価額は貼り付けた日のまま。売買したら貼り直してください</div>`;
 }
+// ---------- 保有株のチャート（銘柄を押すと下に開く） ----------
+const CH_RANGES = [['1d', '1日', '5分足'], ['1mo', '1か月', '日足'], ['1y', '1年', '日足'], ['5y', '5年', '週足'], ['15y', '15年', '月足']];
+const LWC_SRC = 'https://cdnjs.cloudflare.com/ajax/libs/lightweight-charts/5.0.8/lightweight-charts.standalone.production.js';
+let lwcLoading = null, chartObj = null, chartCode = '', chartReq = 0;
+function loadLwc() {
+  if (window.LightweightCharts) return Promise.resolve();
+  if (!lwcLoading) lwcLoading = new Promise((ok, ng) => {
+    const s = document.createElement('script'); s.src = LWC_SRC; s.onload = ok; s.onerror = () => { lwcLoading = null; ng(new Error('lib')); };
+    document.head.appendChild(s);
+  });
+  return lwcLoading;
+}
+function closeChart() {
+  if (chartObj) { chartObj.remove(); chartObj = null; }
+  document.querySelectorAll('.chpanel').forEach((p) => p.remove());
+  document.querySelectorAll('.hchart.open').forEach((r) => r.classList.remove('open'));
+  chartCode = '';
+}
+function openChart(row) {
+  const code = row.dataset.chart;
+  const same = chartCode === code;
+  closeChart();
+  if (same) return;
+  chartCode = code;
+  row.classList.add('open');
+  const p = document.createElement('div');
+  p.className = 'chpanel';
+  p.innerHTML = `<div class="chtabs">${CH_RANGES.map(([k, l]) => `<button type="button" data-chr="${k}">${l}</button>`).join('')}</div>
+    <div class="chinfo meta"></div><div class="chbox"></div>`;
+  row.after(p);
+  drawChart(p, code, load('portal-chart-range', '1y'));
+}
+async function drawChart(p, code, range) {
+  const req = ++chartReq;
+  save('portal-chart-range', range);
+  p.querySelectorAll('[data-chr]').forEach((b) => b.setAttribute('aria-pressed', b.dataset.chr === range));
+  const info = p.querySelector('.chinfo'), box = p.querySelector('.chbox');
+  info.textContent = '読み込み中…';
+  try {
+    const [j] = await Promise.all([post({ type: 'stockChart', code, range }), loadLwc()]);
+    if (req !== chartReq || !p.isConnected) return;
+    if (!j.ok) throw new Error(j.error);
+    if (!j.bars.length) { info.textContent = 'この期間の値がありません'; return; }
+    renderChart(p, j);
+  } catch (e) {
+    if (req !== chartReq) return;
+    info.textContent = e.message === 'lib' ? 'グラフの部品を読めませんでした（通信を確かめてください）' : `チャートを読めませんでした（${e.message}）`;
+  }
+}
+function renderChart(p, j) {
+  const LW = window.LightweightCharts;
+  const box = p.querySelector('.chbox');
+  if (chartObj) { chartObj.remove(); chartObj = null; }
+  const css = getComputedStyle(document.documentElement);
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const up = dark ? '#ff8a73' : '#c0392b', down = dark ? '#7fb2ff' : '#2e6fb5';
+  const intraday = j.range === '1d';
+  // 時刻は取引所の現地時間で見せる（グラフ部品はUTCで描くので、その分ずらして渡す）
+  const off = j.gmtoffset || 0;
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmtT = (t) => { const d = new Date(t * 1000);
+    return intraday ? `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}` : j.range === '15y' ? `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}` : `${d.getUTCFullYear()}/${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+  chartObj = LW.createChart(box, {
+    autoSize: true,
+    layout: { background: { color: 'transparent' }, textColor: css.getPropertyValue('--muted').trim(), fontSize: 11, attributionLogo: false },
+    grid: { vertLines: { visible: false }, horzLines: { color: css.getPropertyValue('--line').trim() } },
+    rightPriceScale: { borderVisible: false },
+    timeScale: { borderVisible: false, timeVisible: intraday, secondsVisible: false, fixLeftEdge: true, fixRightEdge: true },
+    localization: { locale: 'ja-JP', timeFormatter: fmtT },
+    handleScroll: { vertTouchDrag: false },
+  });
+  const s = chartObj.addSeries(LW.CandlestickSeries, { upColor: up, downColor: down, borderVisible: false, wickUpColor: up, wickDownColor: down,
+    priceFormat: { type: 'price', precision: j.currency === 'JPY' ? 0 : 2, minMove: j.currency === 'JPY' ? 1 : 0.01 } });
+  const rows = [];
+  j.bars.forEach(([t, o, h, l, c]) => {   // 週足・月足は最後の足が同じ時刻で重なることがある＝後の値で置き換える
+    const r = { time: t + off, open: o, high: h, low: l, close: c };
+    if (rows.length && rows[rows.length - 1].time >= r.time) rows[rows.length - 1] = { ...r, time: rows[rows.length - 1].time };
+    else rows.push(r);
+  });
+  s.setData(rows);
+  if (intraday && j.prev) s.createPriceLine({ price: j.prev, color: css.getPropertyValue('--muted').trim(), lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: '前日終値' });
+  chartObj.timeScale().fitContent();
+  // 期間の始めから今までの動き。指でなぞった足の値も同じ行に出す
+  const first = intraday && j.prev ? j.prev : j.bars[0][1], last = j.bars[j.bars.length - 1][4];
+  const cur = j.currency === 'JPY' ? '円' : 'ドル';
+  const fmtP = (n) => n.toLocaleString('ja-JP', { maximumFractionDigits: j.currency === 'JPY' ? 1 : 2 });
+  const chg = last - first, pct = first ? (chg / first) * 100 : 0;
+  const unit = CH_RANGES.find((r) => r[0] === j.range);
+  const base = `${unit[1]}で <span class="${pnlCls(chg)}">${chg >= 0 ? '+' : '−'}${fmtP(Math.abs(chg))}${cur}（${pct >= 0 ? '+' : ''}${pct.toFixed(1)}%）</span>・1本＝${unit[2]}`;
+  const info = p.querySelector('.chinfo');
+  info.innerHTML = base;
+  chartObj.subscribeCrosshairMove((m) => {
+    const d = m && m.time != null ? m.seriesData.get(s) : null;
+    info.innerHTML = d ? `${fmtT(m.time)}　始${fmtP(d.open)} 高${fmtP(d.high)} 安${fmtP(d.low)} 終<b>${fmtP(d.close)}</b>` : base;
+  });
+}
+['#hold', '#stocks'].forEach((sel) => {
+  $(sel).addEventListener('click', (e) => {
+    const t = e.target.closest('[data-chr]');
+    if (t) { const p = t.closest('.chpanel'); drawChart(p, chartCode, t.dataset.chr); return; }
+    if (e.target.closest('.chpanel')) return;
+    const row = e.target.closest('.hchart');
+    if (row) openChart(row);
+  });
+  $(sel).addEventListener('keydown', (e) => {
+    const row = e.target.closest && e.target.closest('.hchart');
+    if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openChart(row); }
+  });
+});
 $('#hold-paste').addEventListener('click', () => { $('#hold-import').hidden = !$('#hold-import').hidden; $('#hold-text').focus(); });
 $('#hold-cancel').addEventListener('click', () => { $('#hold-import').hidden = true; $('#hold-text').value = ''; });
 $('#hold-go').addEventListener('click', async () => {

@@ -21,6 +21,48 @@ function holdingsHandle_(body, props) {
   return { ok: false, error: 'type' };
 }
 
+// 1銘柄のローソク足。期間ごとに1本の長さを変える（1日＝5分足、1か月・1年＝日足、5年＝週足、15年＝月足）
+var CHART_RANGES = {
+  '1d': { q: 'range=1d&interval=5m', ttl: 300 },
+  '1mo': { q: 'range=1mo&interval=1d', ttl: 1800 },
+  '1y': { q: 'range=1y&interval=1d', ttl: 3600 },
+  '5y': { q: 'range=5y&interval=1wk', ttl: 3600 },
+  '15y': { years: 15, interval: '1mo', ttl: 21600 }
+};
+function chart_(code, range) {
+  var r = CHART_RANGES[range];
+  code = code.trim().toUpperCase();
+  if (!r || !/^[0-9A-Z][0-9A-Z .\-]{0,9}$/.test(code)) return { ok: false, error: 'arg' };
+  var sym = ySymbol_(code);
+  var cache = CacheService.getScriptCache();
+  var k = 'ch_' + range + '_' + sym;
+  var c = cache.get(k);
+  if (c) return JSON.parse(c);
+  var q = r.q;
+  if (!q) {
+    var now = Math.floor(Date.now() / 1000);
+    q = 'period1=' + (now - r.years * 365.25 * 86400).toFixed(0) + '&period2=' + now + '&interval=' + r.interval;
+  }
+  var res = UrlFetchApp.fetch('https://query1.finance.yahoo.com/v8/finance/chart/' + encodeURIComponent(sym) + '?' + q,
+    { muteHttpExceptions: true, headers: { 'User-Agent': 'Mozilla/5.0' } });
+  if (res.getResponseCode() !== 200) return { ok: false, error: 'HTTP ' + res.getResponseCode() };
+  var d = JSON.parse(res.getContentText()).chart.result[0];
+  var qt = (d.indicators && d.indicators.quote && d.indicators.quote[0]) || {};
+  var ts = d.timestamp || [];
+  var dig = d.meta.currency === 'JPY' ? 1 : 100;
+  var rd = function (v) { return Math.round(v * dig) / dig; };
+  var bars = [];
+  for (var i = 0; i < ts.length; i++) {
+    if (qt.open[i] == null || qt.close[i] == null) continue;   // 値のない足（取引のない時間）は飛ばす
+    bars.push([ts[i], rd(qt.open[i]), rd(qt.high[i]), rd(qt.low[i]), rd(qt.close[i])]);
+  }
+  var out = { ok: true, code: code, range: range, currency: d.meta.currency, gmtoffset: d.meta.gmtoffset || 0,
+    prev: range === '1d' ? (d.meta.chartPreviousClose || d.meta.previousClose || null) : null, bars: bars };
+  var s = JSON.stringify(out);
+  if (s.length < 90000) cache.put(k, s, r.ttl);
+  return out;
+}
+
 function num_(s) { var n = Number(String(s || '').replace(/[,円%\s]/g, '')); return isFinite(n) ? n : 0; }
 
 // 表の貼り付け（タブ区切り）を読む。「株式(現物)」「投資信託」の見出しで切り替える

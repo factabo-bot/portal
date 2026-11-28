@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 22;
+var VERSION = 24;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';        // 旧：1台分だけ（11/27まで）。今は portal_sessions_<PC名> に1台ずつ
@@ -80,6 +80,7 @@ function doPost(e) {
   if (!same_(body.key, WEBAPP_TOKEN)) return json_({ ok: false, error: 'key' });
 
   if (body.type === 'saveMoney') return json_(saveMoneySettings_(props, body));
+  if (body.type === 'stockChart') return json_(chart_(String(body.code || ''), String(body.range || '')));   // 株価の欄のチャート（Holdings.js）
 
   if (body.type === 'get') {
     var out = { ok: true, version: VERSION };
