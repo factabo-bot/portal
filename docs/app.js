@@ -196,12 +196,17 @@ const PC_NAMES = { Ben: '家のPC', 'DESKTOP-MUU2JN2': 'ノートPC' };
 const pcName = (h) => PC_NAMES[h] || h || '';
 // この端末がどのPCか（窓口の設定で端末ごとに保存。スマホ・未設定は家のPCとみなす）
 const myPc = () => (PHONE ? '' : cfg.pc || HOME_PC);
-// ほかのPCの会話か（そのPCのアプリでしか開けない）
-const otherPc = (s) => !PHONE && !!s.host && s.host !== myPc();
+// ほかのPCの会話か
+const elsewhere = (s) => !PHONE && !!s.host && s.host !== myPc();
+// ほかのPCの会話で、このPCでは開けないもの。sy＝2台で記録を写し合っている会話（見回り役の session_sync.py）は開ける。
+// ただし向こうで作業中のあいだは、両方で書くと枝分かれするので開かない
+const otherPc = (s) => elsewhere(s) && (!s.sy || s.state === 'work');
 function sessionLinks(s) {
   let app = '';
   if (s.app === 'VS Code' && RE_UUID.test(s.open || '')) app = `vscode://anthropic.claude-code/open?session=${s.open}`;
   if (s.app === 'デスクトップ' && RE_LOCAL.test(s.open || '')) app = `claude://code/continue?session=${s.open}`;
+  // ほかのPCのデスクトップの会話：アプリ内のIDはPCごとなので、写した記録を取り込んで開く
+  if (s.app === 'デスクトップ' && elsewhere(s)) app = RE_UUID.test(s.cli || '') ? `claude://resume?session=${s.cli}` : '';
   const web = RE_RC.test(s.rc || '') ? `https://claude.ai/code/session_${s.rc}` : '';
   return { app, web };
 }
@@ -243,7 +248,10 @@ document.addEventListener('click', (e) => {
 function renderSessions(data) {
   const el = $('#sessions');
   if (!data) { el.innerHTML = '<div class="muted">まだ届いていません（PCの見回り役が未起動）</div>'; return; }
-  const list = data.sessions || [];
+  // 2台で写し合う会話は、両方のPCから届くことがある（取り込んだ直後など）。新しい方だけ残す
+  const byId = {};
+  for (const x of data.sessions || []) if (!byId[x.id] || x.at > byId[x.id].at) byId[x.id] = x;
+  const list = Object.values(byId);
   const waiting = (x) => (x.state === 'ask' || x.state === 'stuck') && !x.hide;
   const row = (s) => {
     const { app: appUrl0, web } = sessionLinks(s);
@@ -261,7 +269,7 @@ function renderSessions(data) {
       : s.hide ? `<button class="btn small ghost shide" data-shide="${esc(s.id)}" data-undo="1">戻す</button>` : '';
     return `<div class="srow st-${s.hide ? 'done' : s.state === 'ask' && s.seen ? 'seen' : esc(s.state)}">
       ${main ? `<a class="sbody" href="${esc(main)}"${ph ? ph.attr : main.startsWith('https:') ? ' target="_blank" rel="noopener noreferrer"' : ''}>${body}</a>` : body}
-      <div class="meta">${s.host && s.host !== HOME_PC ? esc(pcName(s.host)) + '・' : ''}${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub} ${switchHtml(s)}${away ? `<span class="slink">${esc(pcName(s.host))}で開いてください</span>` : ''}${hand}${btn}</div></div>`;
+      <div class="meta">${s.host && s.host !== HOME_PC ? esc(pcName(s.host)) + '・' : ''}${s.acct ? esc(s.acct) + '・' : ''}${esc(s.app)}${s.folder ? '・' + esc(s.folder) : ''}・${ago(s.at)} ${sub} ${switchHtml(s)}${away ? `<span class="slink">${esc(pcName(s.host))}${s.sy ? 'で作業中' : 'で開いてください'}</span>` : ''}${hand}${btn}</div></div>`;
   };
   // 新しい順に1本で並べる。多いときは10件目以降を折りたたむ
   const sorted = [...list].sort((a, b) => b.at - a.at);

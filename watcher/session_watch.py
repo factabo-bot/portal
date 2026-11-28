@@ -21,6 +21,9 @@ import sys
 import time
 import urllib.request
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import session_sync  # noqa: E402
+
 HERE = pathlib.Path(__file__).resolve().parent
 CFG = HERE.parent / "gas" / ".local.json"
 STATE = HERE / "state.json"
@@ -238,6 +241,9 @@ def collect():
             continue
         if f["cwd"] and pathlib.PurePath(f["cwd"]).name == "_llm":   # やりたいことの見立て役（claude -p）
             continue
+        sync = session_sync.in_scope(p.parent.name)
+        if sync and session_sync.from_other_pc(p.stem, p.stat().st_size):   # 最後に話したのは相手のPC（相手が出す）
+            continue
         dinfo = didx.get(p.stem)
         if f["entry"] != "claude-desktop":   # VS Code に切り替えた会話は、デスクトップ側の印（アーカイブ・開いた時刻）を使わない
             dinfo = None
@@ -260,6 +266,8 @@ def collect():
             "open": (dinfo[0] if dinfo else "") if f["entry"] == "claude-desktop" else p.stem,
             "rc": f["bridge"].split("_", 1)[1] if "_" in f["bridge"] else "",
         }
+        if sync:
+            s["sy"] = 1                # 2台で写し合っている＝どちらのPCからでも開ける
         if f["entry"] == "claude-desktop":
             s["cli"] = p.stem          # もう片方（VS Code）で開くための記録のID
             # スマホ用のIDもアプリの管理情報が正（切り替えた会話の記録には、前のアプリのIDが残る）
@@ -341,6 +349,10 @@ def git_pull():
 
 def main():
     cfg = json.loads(CFG.read_text(encoding="utf-8"))
+    try:                               # 会話の記録をもう1台と写し合う（session_sync.py）
+        session_sync.run(live_status(), log=log)
+    except Exception as e:  # noqa: BLE001
+        log("sync error: " + repr(e)[:300])
     sessions = collect()
     q = quotas()
     v = voices()
