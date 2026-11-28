@@ -1,4 +1,6 @@
-"""sub（デスクトップアプリのアカウント）の使用量を、公式の利用枠の窓口から取る。
+"""main・sub の使用量を、公式の利用枠の窓口（api/oauth/usage）から取る。
+main＝~/.claude（VS Code の CLI のログイン）。11/28 までは AI進捗モニターの collector を借りていたが、モニターは廃止した。
+sub（デスクトップアプリのアカウント）は次のとおり。
 デスクトップアプリのログインは外から使えないので、CLI を別の置き場（~/.claude-sub、CLAUDE_CONFIG_DIR）で
 sub にログインしておき、そのログイン情報で問い合わせる（main と同じ窓口）。
 置き場はPCの中だけ（ドライブ・git に入れない）。ログインが無いPCでは None を返し、見回り役は推定に戻る。"""
@@ -10,47 +12,46 @@ import subprocess
 import time
 import urllib.request
 
-DIR = pathlib.Path.home() / ".claude-sub"
-CREDS = DIR / ".credentials.json"
-CACHE = DIR / ".quota_cache.json"
-STATE = DIR / ".refresh_state.json"
+SUB = pathlib.Path.home() / ".claude-sub"
+MAIN = pathlib.Path.home() / ".claude"
 NOWIN = 0x08000000   # CREATE_NO_WINDOW（pythonw から呼ぶと黒い窓が出るため）
 
 
-def _token():
+def _token(d):
     try:
-        c = json.loads(CREDS.read_text(encoding="utf-8")).get("claudeAiOauth", {})
+        c = json.loads((d / ".credentials.json").read_text(encoding="utf-8")).get("claudeAiOauth", {})
         return c.get("accessToken"), (c.get("expiresAt") or 0) / 1000
     except Exception:  # noqa: BLE001
         return None, 0
 
 
-def _claude(args, timeout):
-    env = dict(os.environ, CLAUDE_CONFIG_DIR=str(DIR))
-    subprocess.run(["claude", *args], env=env, cwd=str(DIR), timeout=timeout, capture_output=True,
+def _claude(d, args, timeout):
+    env = dict(os.environ, CLAUDE_CONFIG_DIR=str(d))
+    subprocess.run(["claude", *args], env=env, cwd=str(d), timeout=timeout, capture_output=True,
                    creationflags=NOWIN, shell=False)
 
 
-def _refresh(now):
+def _refresh(d, now):
     """期限が近いトークンを CLI に更新させる。まず軽い auth status、だめなら1時間に1回だけ最小の問い合わせ"""
-    _claude(["auth", "status"], 60)
-    tok, exp = _token()
+    _claude(d, ["auth", "status"], 60)
+    tok, exp = _token(d)
     if tok and exp - now > 600:
         return
     try:
-        st = json.loads(STATE.read_text(encoding="utf-8"))
+        st = json.loads((d / ".portal_refresh.json").read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         st = {}
     if now - st.get("ping", 0) < 3600:
         return
-    STATE.write_text(json.dumps({"ping": now}), encoding="utf-8")
-    _claude(["-p", "ok", "--model", "haiku", "--no-session-persistence", "--max-turns", "1"], 120)
+    (d / ".portal_refresh.json").write_text(json.dumps({"ping": now}), encoding="utf-8")
+    _claude(d, ["-p", "ok", "--model", "haiku", "--no-session-persistence", "--max-turns", "1"], 120)
 
 
-def fetch(now=None):
-    """{"fh","sd","fhReset","sdReset"} か None"""
+def fetch(now=None, d=SUB):
+    """{"fh","sd","fhReset","sdReset"} か None。d＝ログインの置き場（SUB か MAIN）"""
     now = now or time.time()
-    if not CREDS.exists():
+    CACHE = d / ".portal_quota_cache.json"
+    if not (d / ".credentials.json").exists():
         return None
     try:
         c = json.loads(CACHE.read_text(encoding="utf-8"))
@@ -60,10 +61,10 @@ def fetch(now=None):
             return c.get("q")
     except Exception:  # noqa: BLE001
         pass
-    tok, exp = _token()
+    tok, exp = _token(d)
     if not tok or exp - now < 600:
-        _refresh(now)
-        tok, exp = _token()
+        _refresh(d, now)
+        tok, exp = _token(d)
     if not tok or exp <= now:
         return None
     req = urllib.request.Request("https://api.anthropic.com/api/oauth/usage",
@@ -94,4 +95,5 @@ def fetch(now=None):
 
 
 if __name__ == "__main__":
-    print(fetch())
+    print("main", fetch(d=MAIN))
+    print("sub", fetch())

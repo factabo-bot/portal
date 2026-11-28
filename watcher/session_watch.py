@@ -288,23 +288,14 @@ def quotas():
     """2つのアプリ（＝2つのアカウント）の使用量。5時間枠 fh・7日枠 sd（%）。新しく開くセッションの行き先を決めるのに使う"""
     now = time.time()
     out = {}
-    # VS Code（CLI のログイン）：AI進捗モニターと同じ公式の利用枠。モニターの1分キャッシュがあれば使う
+    # main（VS Code の CLI のログイン ~/.claude）：公式の利用枠。5分に1回・断られたら15分待つ（sub_quota.py）
     try:
-        sys.path.insert(0, str(pathlib.Path.home() / "projects" / "ai-session-monitor"))
-        import collector  # noqa: E402
-        # main も5分に1回だけ（collector は1分で問い合わせ直す。VS Code 拡張も同じ窓口を使うので、こちらは控えめに）
-        mc = pathlib.Path.home() / ".claude" / ".quota_cache.json"
-        try:
-            age = now - json.loads(mc.read_text(encoding="utf-8")).get("at", 0)
-        except Exception:  # noqa: BLE001
-            age = 1e9
-        q = collector.fetch_claude_quota(pathlib.Path.home(), now if age >= 300 else now - age)
+        import sub_quota
+        q = sub_quota.fetch(now, sub_quota.MAIN)
         if q:
-            out["vscode"] = {"fh": round(q["primary"]["used_percent"]), "sd": round(q["secondary"]["used_percent"]),
-                             "at": int(now), "fhReset": q["primary"].get("resets_at"),
-                             "sdReset": q["secondary"].get("resets_at"), "est": False}
+            out["vscode"] = dict(q, at=int(now), est=False)
     except Exception as e:  # noqa: BLE001
-        log("quota vscode: " + repr(e)[:120])
+        log("quota main: " + repr(e)[:120])
     # デスクトップ（sub）：~/.claude-sub に CLI で sub にログインしてあれば公式の値（sub_quota.py）
     try:
         import sub_quota
