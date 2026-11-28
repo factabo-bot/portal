@@ -296,7 +296,16 @@ def quotas():
                              "sdReset": q["secondary"].get("resets_at"), "est": False}
     except Exception as e:  # noqa: BLE001
         log("quota vscode: " + repr(e)[:120])
-    # デスクトップ：アプリが出来事のたびに書く記録の最後の値に、その後の会話のトークン量を足して推定する（usage_est.py）
+    # デスクトップ（sub）：~/.claude-sub に CLI で sub にログインしてあれば公式の値（sub_quota.py）
+    try:
+        import sub_quota
+        q = sub_quota.fetch(now)
+        if q:
+            out["desktop"] = dict(q, at=int(now), est=False)
+            return out
+    except Exception as e:  # noqa: BLE001
+        log("quota sub: " + repr(e)[:120])
+    # ログインが無い・取れないときは、アプリが出来事のたびに書く記録の最後の値に、その後の会話のトークン量を足して推定する（usage_est.py）
     try:
         hp = pathlib.Path(os.environ.get("LOCALAPPDATA", "")) / "Claude-Data" / "claude_pzs8sxrjxfjjc" / "plan-usage-history.json"
         sm = json.loads(hp.read_text(encoding="utf-8"))["samples"]
