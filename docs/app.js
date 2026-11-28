@@ -263,12 +263,25 @@ const IC = {
 };
 // main・sub の使用量（5時間枠・7日枠）。main＝VS Code（CLIのログイン・公式の値）、sub＝デスクトップ（推定）
 function usageHtml() {
+  const WD = '日月火水木金土';
+  const t = (sec) => { const d = new Date(Math.round(sec / 60) * 60000); return d; };
+  const day = (d) => `${d.getMonth() + 1}/${d.getDate()}(${WD[d.getDay()]})`;
   const one = (acct, key) => {
     const q = lastQuota && lastQuota[key];
-    const bar = (v, lab) => `<span class="ubar" title="${lab} ${v}%"><span class="ulab">${lab}</span><span class="utrack"><span class="ufill${v >= 80 ? ' hot' : ''}" style="width:${Math.min(100, Math.max(0, +v || 0))}%"></span></span><span class="upct">${+v || 0}%</span></span>`;
-    if (!q) return `<div class="urow"><span class="stag">${acctName(acct)}</span><span class="muted">使用量は不明</span></div>`;
-    const reset = q.fhReset && q.fhReset * 1000 > Date.now() ? `${hm(new Date(Math.round(q.fhReset / 60) * 60000))}回復` : '';
-    return `<div class="urow"><span class="stag">${acctName(acct)}</span>${bar(q.fh, '5時間')}${bar(q.sd, '7日')}<span class="ureset">${reset}${q.est ? (reset ? '・' : '') + '推定' : ''}</span></div>`;
+    const name = `<span class="stag">${acctName(acct)}</span>`;
+    if (!q) return `${name}<span class="unone muted">使用量は不明</span>`;
+    const est = q.est ? '（推定）' : '';
+    const live = (x) => x && x * 1000 > Date.now();
+    const fhR = live(q.fhReset) ? `${hm(t(q.fhReset))}${q.est ? 'ごろ' : ''}` : '';
+    let sdR = '';
+    if (live(q.sdReset) || live(q.sdResetEnd)) {
+      const a = t(q.sdReset), b = q.sdResetEnd ? t(q.sdResetEnd) : null;
+      sdR = !b ? `${day(a)} ${hm(a)}`
+        : a.toDateString() === b.toDateString() ? `${day(a)} ${a.getHours()}〜${b.getHours() + (b.getMinutes() ? 1 : 0)}時ごろ`
+        : `${day(a)} ${hm(a)}〜${day(b)} ${hm(b)}`;
+    }
+    const bar = (v, lab, reset, cls) => `<span class="ubar ${cls}" title="${lab}の枠 ${+v || 0}%${reset ? '・' + reset + 'に戻る' : ''}${est}"><span class="ulab">${lab}</span><span class="utrack"><span class="ufill${v >= 80 ? ' hot' : ''}" style="width:${Math.min(100, Math.max(0, +v || 0))}%"></span></span><span class="upct">${+v || 0}%</span><span class="ureset">${reset}</span></span>`;
+    return name + bar(q.fh, '5時間', fhR, 'w5') + bar(q.sd, '7日', sdR, 'w7');
   };
   return `<div class="usage">${one('アカウントA', 'vscode')}${one('アカウントB', 'desktop')}</div>`;
 }

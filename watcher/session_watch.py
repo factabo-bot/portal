@@ -292,7 +292,8 @@ def quotas():
         q = collector.fetch_claude_quota(pathlib.Path.home(), now)
         if q:
             out["vscode"] = {"fh": round(q["primary"]["used_percent"]), "sd": round(q["secondary"]["used_percent"]),
-                             "at": int(now), "fhReset": q["primary"].get("resets_at"), "est": False}
+                             "at": int(now), "fhReset": q["primary"].get("resets_at"),
+                             "sdReset": q["secondary"].get("resets_at"), "est": False}
     except Exception as e:  # noqa: BLE001
         log("quota vscode: " + repr(e)[:120])
     # デスクトップ：アプリが出来事のたびに書く記録の最後の値に、その後の会話のトークン量を足して推定する（usage_est.py）
@@ -305,6 +306,10 @@ def quotas():
             import usage_est
             e = usage_est.estimate(t, last["u"].get("fh", 0), last["u"].get("sd", 0), now)
             out["desktop"] = dict(e, at=int(now), est=True)
+            import week_reset   # 7日枠の戻る時刻は記録に無いので、過去に下がった時期から幅で推定
+            w = week_reset.next_reset(sm, last.get("org"), now)
+            if w:
+                out["desktop"].update(sdReset=w[0], sdResetEnd=w[1])
     except Exception as e:  # noqa: BLE001
         log("quota desktop: " + repr(e)[:120])
     return out

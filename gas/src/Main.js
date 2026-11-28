@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 24;
+var VERSION = 25;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';        // 旧：1台分だけ（11/27まで）。今は portal_sessions_<PC名> に1台ずつ
@@ -29,7 +29,7 @@ function doPost(e) {
       var q = (body.quota || {})[k];
       if (!q) return;
       quota[k] = { fh: Math.max(0, Math.min(100, Number(q.fh) || 0)), sd: Math.max(0, Math.min(100, Number(q.sd) || 0)),
-        at: Number(q.at) || 0, fhReset: Number(q.fhReset) || 0, est: !!q.est };
+        at: Number(q.at) || 0, fhReset: Number(q.fhReset) || 0, sdReset: Number(q.sdReset) || 0, sdResetEnd: Number(q.sdResetEnd) || 0, est: !!q.est };
     });
     var voice = {};   // まだ文字起こししていない音声の数 {日付: 件数}
     Object.keys(body.voice || {}).slice(0, 14).forEach(function (d) { if (/^\d{4}-\d{2}-\d{2}$/.test(d)) voice[d] = Math.max(0, Math.floor(Number(body.voice[d]) || 0)); });
