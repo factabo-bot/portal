@@ -5,7 +5,7 @@
 //   KEIHI_TOKEN  … 経費の振り分け専用（Keihi.js）。読める範囲・できる操作を絞ってある
 // 合言葉はURLに載せないため、問い合わせはすべて POST の本文で受ける。GET は生存確認だけ。
 
-var VERSION = 25;
+var VERSION = 26;
 var PEST_LOG_NAME = '発生予察_新着ログ.md';
 var LINKS_KEY = 'portal_links';
 var SESSIONS_KEY = 'portal_sessions';        // 旧：1台分だけ（11/27まで）。今は portal_sessions_<PC名> に1台ずつ
@@ -233,7 +233,12 @@ function sessions_(props) {
   var h = hidden_(props), list = [], quota = {}, voice = {}, voiceAt = '', at = '';
   pcs.forEach(function (d) {
     (d.sessions || []).forEach(function (s) { s.host = d.host; if (h[s.id] >= s.at) s.hide = 1; list.push(s); });
-    Object.keys(d.quota || {}).forEach(function (k) { if (!quota[k] || d.quota[k].at > quota[k].at) quota[k] = d.quota[k]; });
+    // 2台の使用量は新しい方。ただし公式の値（est=false）が15分以内にあれば、推定より公式を採る
+    Object.keys(d.quota || {}).forEach(function (k) {
+      var n = d.quota[k], o = quota[k];
+      var good = function (x) { return x && !x.est && Date.now() / 1000 - x.at < 900; };
+      if (!o || (good(n) && !good(o)) || (good(n) === good(o) && n.at > o.at)) quota[k] = n;
+    });
     if (Object.keys(d.voice || {}).length && d.at > voiceAt) { voice = d.voice; voiceAt = d.at; }   // 音声の数は送ってきたPCの新しい方
     if (d.at > at) at = d.at;
   });
